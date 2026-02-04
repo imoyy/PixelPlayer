@@ -441,12 +441,13 @@ fun LibraryScreen(
                     .fillMaxSize()
             ) {
                 if (!isCompactNavigation) {
+                    val showTabIndicator = false
                     ScrollableTabRow(
                         selectedTabIndex = pagerState.currentPage,
                         containerColor = Color.Transparent,
                         edgePadding = 12.dp,
                         indicator = { tabPositions ->
-                            if (pagerState.currentPage < tabPositions.size) {
+                            if (showTabIndicator && pagerState.currentPage < tabPositions.size) {
                                 TabRowDefaults.PrimaryIndicator(
                                     modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
                                     height = 3.dp,
