@@ -57,23 +57,26 @@ class ArtistImageRepository @Inject constructor(
             return null
         }
 
-        // Check database cache
-        val dbCachedUrl = withContext(Dispatchers.IO) {
-            musicDao.getArtistImageUrl(artistId)
+        // Resolve canonical DB artist row by name to avoid MediaStore-ID/DB-ID mismatches.
+        val (resolvedArtistId, dbCachedUrl) = withContext(Dispatchers.IO) {
+            val canonicalArtistId = musicDao.getArtistIdByNormalizedName(artistName) ?: artistId
+            val cachedUrl = musicDao.getArtistImageUrl(canonicalArtistId)
+                ?: musicDao.getArtistImageUrlByNormalizedName(artistName)
+            canonicalArtistId to cachedUrl
         }
         if (!dbCachedUrl.isNullOrEmpty()) {
             val upgradedDbUrl = upgradeToHighResDeezerUrl(dbCachedUrl)
             memoryCache.put(normalizedName, upgradedDbUrl)
             if (upgradedDbUrl != dbCachedUrl) {
                 withContext(Dispatchers.IO) {
-                    musicDao.updateArtistImageUrl(artistId, upgradedDbUrl)
+                    musicDao.updateArtistImageUrl(resolvedArtistId, upgradedDbUrl)
                 }
             }
             return upgradedDbUrl
         }
 
         // Fetch from Deezer API
-        return fetchAndCacheArtistImage(artistName, artistId, normalizedName)
+        return fetchAndCacheArtistImage(artistName, resolvedArtistId, normalizedName)
     }
 
     /**
