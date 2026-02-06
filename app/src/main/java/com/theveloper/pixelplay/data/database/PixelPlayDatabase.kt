@@ -138,13 +138,63 @@ abstract class PixelPlayDatabase : RoomDatabase() {
                         last_played_timestamp INTEGER NOT NULL DEFAULT 0
                     )
                 """.trimIndent())
+
+                // Backport upstream MIGRATION_14_15 changes for users who were on local branch
+                try {
+                    db.execSQL("ALTER TABLE album_art_themes ADD COLUMN paletteStyle TEXT NOT NULL DEFAULT 'tonal_spot'")
+                } catch (e: Exception) {
+                    // Column might already exist
+                }
+
+                val newRoleColumns = listOf(
+                    "surfaceBright",
+                    "surfaceDim",
+                    "surfaceContainer",
+                    "surfaceContainerHigh",
+                    "surfaceContainerHighest",
+                    "surfaceContainerLow",
+                    "surfaceContainerLowest",
+                    "primaryFixed",
+                    "primaryFixedDim",
+                    "onPrimaryFixed",
+                    "onPrimaryFixedVariant",
+                    "secondaryFixed",
+                    "secondaryFixedDim",
+                    "onSecondaryFixed",
+                    "onSecondaryFixedVariant",
+                    "tertiaryFixed",
+                    "tertiaryFixedDim",
+                    "onTertiaryFixed",
+                    "onTertiaryFixedVariant"
+                )
+
+                val prefixes = listOf("light_", "dark_")
+                prefixes.forEach { prefix ->
+                    newRoleColumns.forEach { role ->
+                        try {
+                            db.execSQL("ALTER TABLE album_art_themes ADD COLUMN ${prefix}${role} TEXT NOT NULL DEFAULT '#00000000'")
+                        } catch (e: Exception) {
+                            // Column might already exist
+                        }
+                    }
+                }
+                // The table is a cache; wipe stale rows so we always regenerate with full token data.
+                db.execSQL("DELETE FROM album_art_themes")
             }
         }
         
         val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE songs ADD COLUMN telegram_chat_id INTEGER DEFAULT NULL")
-                db.execSQL("ALTER TABLE songs ADD COLUMN telegram_file_id INTEGER DEFAULT NULL")
+                try {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN telegram_chat_id INTEGER DEFAULT NULL")
+                } catch (e: Exception) {
+                    // Column might already exist
+                }
+                try {
+                    db.execSQL("ALTER TABLE songs ADD COLUMN telegram_file_id INTEGER DEFAULT NULL")
+                } catch (e: Exception) {
+                    // Column might already exist
+                }
             }
         }
 
