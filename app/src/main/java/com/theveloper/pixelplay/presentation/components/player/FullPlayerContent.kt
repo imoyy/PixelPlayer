@@ -397,7 +397,7 @@ fun FullPlayerContent(
             shouldDelay = shouldDelay,
             showPlaceholders = loadingTweaks.showPlaceholders,
             applyPlaceholderDelayOnClose = loadingTweaks.applyPlaceholdersOnClose,
-            sharedBoundsModifier = Modifier.fillMaxWidth().height(174.dp),
+            sharedBoundsModifier = Modifier.fillMaxWidth().height(182.dp),
             expansionFractionProvider = expansionFractionProvider,
             isExpandedOverride = currentSheetState == PlayerSheetState.EXPANDED,
             normalStartThreshold = 0.42f,
@@ -405,7 +405,7 @@ fun FullPlayerContent(
             delayCloseThreshold = 1f - (loadingTweaks.contentCloseThresholdPercent / 100f),
             placeholder = {
                 if (loadingTweaks.transparentPlaceholders) {
-                    Box(Modifier.fillMaxWidth().height(174.dp))
+                    Box(Modifier.fillMaxWidth().height(182.dp))
                 } else {
                     ControlsPlaceholder(placeholderColor, placeholderOnColor)
                 }
@@ -439,7 +439,7 @@ fun FullPlayerContent(
                 BottomToggleRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 58.dp, max = 78.dp)
+                        .heightIn(min = 66.dp, max = 86.dp)
                         .padding(horizontal = 26.dp, vertical = 0.dp)
                         .padding(bottom = 6.dp),
                     isShuffleEnabled = isShuffleEnabledProvider(),
@@ -523,10 +523,11 @@ fun FullPlayerContent(
                     onShowQueueClicked()
                 },
                 onClickArtist = {
+                    val resolvedArtistId = currentSongArtists.firstOrNull()?.id ?: song.artistId
                     if (currentSongArtists.size > 1) {
                         showArtistPicker = true
                     } else {
-                        playerViewModel.triggerArtistNavigationFromPlayer(song.artistId)
+                        playerViewModel.triggerArtistNavigationFromPlayer(resolvedArtistId)
                     }
                 }
             )
@@ -1125,7 +1126,7 @@ private fun PlayerProgressBarSection(
     val expansionFraction = expansionFractionProvider()
     val isVisible = expansionFraction > 0.01f
     val isExpanded = currentSheetState == PlayerSheetState.EXPANDED && expansionFraction >= 0.995f
-    val shouldRunRealtimeUpdates = allowRealtimeUpdates && isVisible && isExpanded
+    val shouldRunRealtimeUpdates = allowRealtimeUpdates && isVisible
 
     val reportedDuration = totalDurationValue.coerceAtLeast(0L)
     val hintDuration = songDurationHintMs.coerceAtLeast(0L)
@@ -1159,7 +1160,7 @@ private fun PlayerProgressBarSection(
         isPlayingProvider = isPlayingProvider,
         currentPositionProvider = currentPositionProvider,
         totalDuration = displayDurationValue,
-        sampleWhilePlayingMs = 200L,
+        sampleWhilePlayingMs = if (isExpanded) 180L else 320L,
         sampleWhilePausedMs = 800L,
         isVisible = shouldRunRealtimeUpdates
     )
@@ -1195,29 +1196,18 @@ private fun PlayerProgressBarSection(
         derivedStateOf { shouldRunRealtimeUpdates && isPlayingProvider() }
     }
 
-    // Logic to determine target progress without reading values
-    val rawPositionProvider = remember(currentPositionProvider) {
-        currentPositionProvider
-    }
-    
-    // DIRECT State derivation - No intermediate Animatable (fixes "stepping" lag)
+    // Always drive the thumb from smoothed progress to avoid visual jumps from 500ms raw ticks.
     val animatedProgressState = remember(
-        isExpanded,
-        shouldRunRealtimeUpdates,
         sliderDragValue,
         optimisticPosition,
         smoothProgressState,
-        durationForCalc,
-        rawPositionProvider
+        durationForCalc
     ) {
         derivedStateOf {
              if (sliderDragValue != null) {
                  sliderDragValue!!
              } else if (optimisticPosition != null) {
                  (optimisticPosition!!.toFloat() / durationForCalc.toFloat()).coerceIn(0f, 1f)
-             } else if (isExpanded && shouldRunRealtimeUpdates) {
-                 val rawPos = rawPositionProvider()
-                 (rawPos.coerceAtLeast(0) / durationForCalc.toFloat()).coerceIn(0f, 1f)
              } else {
                  smoothProgressState.value
              }
@@ -1429,6 +1419,7 @@ private fun DelayedContent(
 
     val appearThreshold = delayAppearThreshold.coerceIn(0f, 1f)
     val closeThreshold = delayCloseThreshold.coerceIn(0f, 1f)
+    val isFullyExpanded = isExpandedOverride && effectiveExpansionFraction >= 0.985f
     var isDelayGateOpen by remember(shouldDelay) { mutableStateOf(!shouldDelay) }
 
     LaunchedEffect(
@@ -1439,7 +1430,8 @@ private fun DelayedContent(
         applyPlaceholderDelayOnClose,
         isCollapsing,
         isExpanding,
-        isExpandedOverride
+        isExpandedOverride,
+        isFullyExpanded
     ) {
         if (!shouldDelay) {
             isDelayGateOpen = true
@@ -1451,9 +1443,8 @@ private fun DelayedContent(
             return@LaunchedEffect
         }
 
-        // Keep delayed content gate open whenever sheet is in expanded state.
-        // This avoids "dead" touch windows when opening via single tap on mini player.
-        if (isExpandedOverride) {
+        // Keep gate open only when truly expanded, so delay toggles still apply during opening motion.
+        if (isFullyExpanded) {
             isDelayGateOpen = true
             return@LaunchedEffect
         }
@@ -1498,10 +1489,8 @@ private fun DelayedContent(
     if (shouldDelay) {
         Box(modifier = sharedBoundsModifier) {
             val effectiveContentAlpha = (contentBlendAlpha * baseAlpha).coerceIn(0f, 1f)
-            val shouldComposeContent =
-                isDelayGateOpen || isExpandedOverride || isExpanding || effectiveExpansionFraction > 0.02f
+            val shouldComposeContent = isDelayGateOpen
 
-            // Compose content slightly ahead of visibility so first interaction is ready immediately.
             if (shouldComposeContent) {
                 Box(
                     modifier = Modifier.graphicsLayer { alpha = effectiveContentAlpha }
@@ -1543,6 +1532,9 @@ private fun PlayerSongInfo(
 ) {
     val coroutineScope = rememberCoroutineScope()
     var isNavigatingToArtist by remember { mutableStateOf(false) }
+    val resolvedArtistId by remember(artists, artistId) {
+        derivedStateOf { artists.firstOrNull { it.id > 0L }?.id ?: artistId }
+    }
     val titleStyle = MaterialTheme.typography.headlineSmall.copy(
         fontWeight = FontWeight.Bold,
         fontFamily = GoogleSansRounded,
@@ -1606,7 +1598,7 @@ private fun PlayerSongInfo(
                     coroutineScope.launch {
                         isNavigatingToArtist = true
                         try {
-                            playerViewModel.triggerArtistNavigationFromPlayer(artistId)
+                            playerViewModel.triggerArtistNavigationFromPlayer(resolvedArtistId)
                         } finally {
                             isNavigatingToArtist = false
                         }
@@ -1880,7 +1872,7 @@ private fun ControlsPlaceholder(color: Color, onColor: Color) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 58.dp, max = 78.dp)
+                .heightIn(min = 66.dp, max = 86.dp)
                 .padding(horizontal = 26.dp)
                 .padding(bottom = 6.dp)
                 .background(

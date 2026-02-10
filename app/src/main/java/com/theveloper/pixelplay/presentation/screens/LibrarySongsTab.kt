@@ -16,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -50,7 +49,6 @@ import com.theveloper.pixelplay.presentation.components.MiniPlayerHeight
 import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 import com.theveloper.pixelplay.presentation.components.subcomps.EnhancedSongListItem
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.paging.compose.LazyPagingItems
@@ -149,8 +147,38 @@ fun LibrarySongsTab(
     }
 
     // Handle different loading states
+    val refreshState = songs.loadState.refresh
+    val reachedEndOfPagination = songs.loadState.append.endOfPaginationReached
+    val shouldShowInitialLoading = songs.itemCount == 0 && (
+        isLoading ||
+            refreshState is LoadState.Loading ||
+            (refreshState is LoadState.NotLoading && !reachedEndOfPagination)
+    )
+
     when {
-        isLoading && songs.itemCount == 0 -> {
+        refreshState is LoadState.Error && songs.itemCount == 0 -> {
+            val error = (refreshState as LoadState.Error).error
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Error loading songs", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        error.localizedMessage ?: "Unknown error",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { songs.retry() }) {
+                        Text("Retry")
+                    }
+                }
+            }
+        }
+        shouldShowInitialLoading -> {
             // Initial loading - show skeleton placeholders
             LazyColumn(
                 modifier = Modifier
@@ -180,7 +208,7 @@ fun LibrarySongsTab(
                 }
             }
         }
-        !isLoading && songs.itemCount == 0 -> {
+        songs.itemCount == 0 && refreshState is LoadState.NotLoading && reachedEndOfPagination -> {
             // Empty state
             Box(
                 modifier = Modifier.fillMaxSize().padding(16.dp),

@@ -663,6 +663,9 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 NavBarContentHeightFullWidth + systemNavBarInset
                             }
+                            val onSearchIconDoubleTap = remember(playerViewModel) {
+                                { playerViewModel.onSearchNavIconDoubleTapped() }
+                            }
 
                             Surface(
                                 modifier = Modifier
@@ -678,7 +681,7 @@ class MainActivity : ComponentActivity() {
                                     navItems = commonNavItems,
                                     currentRoute = currentRoute,
                                     navBarStyle = navBarStyle,
-                                    onSearchIconDoubleTap = { playerViewModel.onSearchNavIconDoubleTapped() },
+                                    onSearchIconDoubleTap = onSearchIconDoubleTap,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
