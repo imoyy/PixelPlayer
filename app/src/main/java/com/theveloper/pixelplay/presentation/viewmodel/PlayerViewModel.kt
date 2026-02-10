@@ -522,6 +522,9 @@ class PlayerViewModel @Inject constructor(
             initialValue = persistentListOf()
         )
 
+    val albumsFlow: StateFlow<ImmutableList<Album>> = libraryStateHolder.albums
+    val artistsFlow: StateFlow<ImmutableList<Artist>> = libraryStateHolder.artists
+
 
 
 
@@ -669,7 +672,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun shuffleRandomAlbum() {
-        val allAlbums = _playerUiState.value.albums
+        val allAlbums = libraryStateHolder.albums.value
         if (allAlbums.isNotEmpty()) {
             val randomAlbum = allAlbums.random()
             val albumSongs = libraryStateHolder.allSongs.value.filter { it.albumId == randomAlbum.id }
@@ -680,7 +683,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun shuffleRandomArtist() {
-        val allArtists = _playerUiState.value.artists
+        val allArtists = libraryStateHolder.artists.value
         if (allArtists.isNotEmpty()) {
             val randomArtist = allArtists.random()
             val artistSongs = libraryStateHolder.allSongs.value.filter { it.artistId == randomArtist.id }
@@ -1050,19 +1053,19 @@ class PlayerViewModel @Inject constructor(
 
         // Collect LibraryStateHolder flows to sync with UI State
         viewModelScope.launch {
-            libraryStateHolder.allSongs.collect { songs ->
-                _playerUiState.update { it.copy(allSongs = songs, songCount = songs.size) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.albums.collect { albums ->
-                _playerUiState.update { it.copy(albums = albums) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.artists.collect { artists ->
-                _playerUiState.update { it.copy(artists = artists) }
-            }
+//            libraryStateHolder.allSongs.collect { songs ->
+//                _playerUiState.update { it.copy(allSongs = songs, songCount = songs.size) }
+//            }
+//        }
+//        viewModelScope.launch {
+//            libraryStateHolder.albums.collect { albums ->
+//                _playerUiState.update { it.copy(albums = albums) }
+//            }
+//        }
+//        viewModelScope.launch {
+//            libraryStateHolder.artists.collect { artists ->
+//                _playerUiState.update { it.copy(artists = artists) }
+//            }
         }
         viewModelScope.launch {
             libraryStateHolder.musicFolders.collect { folders ->

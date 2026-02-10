@@ -255,6 +255,9 @@ fun LibraryScreen(
     }
     val isSortSheetVisible by playerViewModel.isSortingSheetVisible.collectAsState()
     val libraryUiState by playerViewModel.playerUiState.collectAsState()
+    val albums by playerViewModel.albumsFlow.collectAsState()
+    val artists by playerViewModel.artistsFlow.collectAsState()
+    val allSongs by playerViewModel.allSongsFlow.collectAsState()
     val hasGeminiApiKey by playerViewModel.hasGeminiApiKey.collectAsState()
     val isGeneratingAiPlaylist by playerViewModel.isGeneratingAiPlaylist.collectAsState()
     val aiError by playerViewModel.aiError.collectAsState()
@@ -692,7 +695,7 @@ fun LibraryScreen(
                                             // Actually ALBUMS/ARTISTS don't show songs list directly, they show items. 
                                             // Selection mode is likely disabled there or not reachable.
                                             // But for SONGS tab:
-                                            LibraryTabId.SONGS -> playerViewModel.playerUiState.value.allSongs
+                                            LibraryTabId.SONGS -> playerViewModel.allSongsFlow.value
                                             else -> emptyList()
                                         }
                                         multiSelectionState.selectAll(songsToSelect)
@@ -898,17 +901,8 @@ fun LibraryScreen(
                                     )
                                 }
                                 LibraryTabId.ALBUMS -> {
-                                    val albums by remember {
-                                        playerViewModel.playerUiState
-                                            .map { it.albums }
-                                            .distinctUntilChanged()
-                                    }.collectAsState(initial = persistentListOf())
-
-                                    val isLoading by remember {
-                                        playerViewModel.playerUiState
-                                            .map { it.isLoadingLibraryCategories }
-                                            .distinctUntilChanged()
-                                    }.collectAsState(initial = albums.isEmpty())
+                                    val albums by playerViewModel.albumsFlow.collectAsState()
+                                    val isLoading = libraryUiState.isLoadingLibraryCategories
 
                                     val stableOnAlbumClick: (Long) -> Unit = remember(navController) {
                                         { albumId: Long ->
@@ -927,17 +921,8 @@ fun LibraryScreen(
                                 }
 
                                 LibraryTabId.ARTISTS -> {
-                                    val artists by remember {
-                                        playerViewModel.playerUiState
-                                            .map { it.artists }
-                                            .distinctUntilChanged()
-                                    }.collectAsState(initial = persistentListOf())
-
-                                    val isLoading by remember {
-                                        playerViewModel.playerUiState
-                                            .map { it.isLoadingLibraryCategories }
-                                            .distinctUntilChanged()
-                                    }.collectAsState(initial = artists.isEmpty())
+                                    val artists by playerViewModel.artistsFlow.collectAsState()
+                                    val isLoading = libraryUiState.isLoadingLibraryCategories
 
                                     LibraryArtistsTab(
                                         artists = artists,
@@ -1088,7 +1073,7 @@ fun LibraryScreen(
                             }
                         }
                     }
-                } else if (globalLoadingState.isSyncingLibrary || ((globalLoadingState.isLoadingInitialSongs || globalLoadingState.isLoadingLibraryCategories) && (globalLoadingState.songCount == 0 && globalLoadingState.albums.isEmpty() && globalLoadingState.artists.isEmpty()))) {
+                } else if (globalLoadingState.isSyncingLibrary || ((globalLoadingState.isLoadingInitialSongs || globalLoadingState.isLoadingLibraryCategories) && (allSongs.isEmpty() && albums.isEmpty() && artists.isEmpty()))) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f)
@@ -1141,7 +1126,7 @@ fun LibraryScreen(
         }
     }
 
-    val allSongs by playerViewModel.allSongsFlow.collectAsState(initial = emptyList())
+
 
     PlaylistCreationTypeDialog(
         visible = showPlaylistCreationTypeDialog,
