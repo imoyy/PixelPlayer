@@ -8,7 +8,6 @@ import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -23,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import androidx.media3.common.util.UnstableApi
 import com.theveloper.pixelplay.data.model.Song
@@ -31,7 +29,6 @@ import com.theveloper.pixelplay.presentation.viewmodel.PlayerViewModel
 import com.theveloper.pixelplay.presentation.viewmodel.StablePlayerState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.flow.map
-import kotlin.math.roundToInt
 
 internal data class SaveQueueOverlayData(
     val songs: List<Song>,
@@ -92,8 +89,8 @@ internal fun UnifiedPlayerQueueLayer(
             )
         }
 
-        val shouldRenderQueueSheet = remember(showQueueSheet, queueHiddenOffsetPx, queueSheetHeightPx, queueSheetOffset.value) {
-            showQueueSheet || queueSheetHeightPx == 0f || queueSheetOffset.value < queueHiddenOffsetPx
+        val shouldRenderQueueSheet = remember(showQueueSheet, queueSheetHeightPx) {
+            showQueueSheet || queueSheetHeightPx == 0f
         }
 
         if (shouldRenderQueueSheet) {
@@ -105,14 +102,9 @@ internal fun UnifiedPlayerQueueLayer(
                 QueueBottomSheet(
                     modifier = Modifier
                         .fillMaxSize()
-                        .offset {
-                            IntOffset(
-                                x = 0,
-                                y = queueSheetOffset.value.roundToInt()
-                            )
-                        }
                         .graphicsLayer {
-                            alpha = if (queueHiddenOffsetPx == 0f || !showQueueSheet) 0f else 1f
+                            translationY = queueSheetOffset.value
+                            alpha = if (showQueueSheet) 1f else 0f
                         }
                         .onGloballyPositioned { coordinates ->
                             val measuredHeight = coordinates.size.height.toFloat()
@@ -183,10 +175,10 @@ internal fun UnifiedPlayerSongInfoLayer(
                 onToggleFavorite = { playerViewModel.toggleFavoriteSpecificSong(liveSong) },
                 onDismiss = onDismissSongInfo,
                 onPlaySong = {
-                    playerViewModel.playSongs(
-                        currentPlaybackQueueProvider(),
-                        liveSong,
-                        currentQueueSourceNameProvider()
+                    playerViewModel.showAndPlaySong(
+                        song = liveSong,
+                        contextSongs = currentPlaybackQueueProvider(),
+                        queueName = currentQueueSourceNameProvider()
                     )
                     onDismissSongInfo()
                 },
@@ -298,10 +290,10 @@ internal fun UnifiedPlayerQueueAndSongInfoHost(
             }
             val onPlayQueueSong = remember(playerViewModel) {
                 { song: Song ->
-                    playerViewModel.playSongs(
-                        latestPlaybackQueue.value,
-                        song,
-                        latestQueueSourceName.value
+                    playerViewModel.showAndPlaySong(
+                        song = song,
+                        contextSongs = latestPlaybackQueue.value,
+                        queueName = latestQueueSourceName.value
                     )
                 }
             }

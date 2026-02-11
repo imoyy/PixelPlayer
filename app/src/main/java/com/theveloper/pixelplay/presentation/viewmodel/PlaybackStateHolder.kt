@@ -34,6 +34,12 @@ class PlaybackStateHolder @Inject constructor(
     companion object {
         private const val TAG = "PlaybackStateHolder"
         private const val DURATION_MISMATCH_TOLERANCE_MS = 1500L
+        /**
+         * Threshold above which we skip per-item moveMediaItem calls and use
+         * a single setMediaItems call instead. moveMediaItem triggers an IPC
+         * round-trip for each call, which freezes the UI on large queues.
+         */
+        private const val BULK_REPLACE_THRESHOLD = 80
     }
 
     private var scope: CoroutineScope? = null
@@ -389,6 +395,27 @@ class PlaybackStateHolder @Inject constructor(
         return true
     }
 
+    /**
+     * Replaces the player timeline with [newQueue] in a single setMediaItems call,
+     * preserving the currently playing song and its position. This is O(1) IPC calls
+     * versus O(n) for reorderQueueInPlace, making it suitable for large queue shuffles.
+     */
+    private fun replacePlayerQueue(player: Player, newQueue: List<Song>, currentSongId: String?, currentPosition: Long) {
+        val wasPlaying = player.isPlaying
+        val targetIndex = if (currentSongId != null) {
+            newQueue.indexOfFirst { it.id == currentSongId }.takeIf { it != -1 } ?: 0
+        } else 0
+
+        dualPlayerEngine.masterPlayer.setMediaItems(
+            newQueue.map { MediaItemBuilder.build(it) },
+            targetIndex,
+            currentPosition
+        )
+        if (wasPlaying && !player.isPlaying) {
+            player.play()
+        }
+    }
+
     fun toggleShuffle(
         currentSongs: List<Song>,
         currentSong: Song?,
@@ -422,28 +449,23 @@ class PlaybackStateHolder @Inject constructor(
                     val currentPosition = player.currentPosition
                     val currentMediaId = player.currentMediaItem?.mediaId
 
-                    val shuffledQueue = QueueUtils.buildAnchoredShuffleQueue(currentSongs, currentIndex)
+                    // Use suspending shuffle for large queues to avoid blocking
+                    val shuffledQueue = QueueUtils.buildAnchoredShuffleQueueSuspending(currentSongs, currentIndex)
 
-                    val targetIndex = shuffledQueue.indexOfFirst { it.id == currentMediaId }
-                        .takeIf { it != -1 } ?: currentIndex
-
-                    val reordered = reorderQueueInPlace(player, shuffledQueue)
-                    if (!reordered) {
-                        // Last-resort fallback if local queue snapshot got desynced from player timeline.
-                        val wasPlaying = player.isPlaying
-                        dualPlayerEngine.masterPlayer.setMediaItems(
-                            shuffledQueue.map { MediaItemBuilder.build(it) },
-                            targetIndex,
-                            currentPosition
-                        )
-                        if (wasPlaying && !player.isPlaying) {
-                            player.play()
+                    // For large queues, use bulk replace (1 IPC call) instead of
+                    // per-item moveMediaItem (n IPC calls) which freezes the UI.
+                    if (currentSongs.size > BULK_REPLACE_THRESHOLD) {
+                        replacePlayerQueue(player, shuffledQueue, currentMediaId, currentPosition)
+                    } else {
+                        val reordered = reorderQueueInPlace(player, shuffledQueue)
+                        if (!reordered) {
+                            replacePlayerQueue(player, shuffledQueue, currentMediaId, currentPosition)
                         }
                     }
 
                     updateQueueCallback(shuffledQueue)
                     _stablePlayerState.update { it.copy(isShuffleEnabled = true) }
-                    
+
                     scope?.launch {
                         if (userPreferencesRepository.persistentShuffleEnabledFlow.first()) {
                             userPreferencesRepository.setShuffleOn(true)
@@ -464,8 +486,6 @@ class PlaybackStateHolder @Inject constructor(
 
                     val originalQueue = queueStateHolder.originalQueueOrder
                     val currentPosition = player.currentPosition
-                    
-                    // Find where the current song is in the original queue
                     val currentSongId = currentSong?.id
                     val originalIndex = originalQueue.indexOfFirst { it.id == currentSongId }.takeIf { it >= 0 }
 
@@ -474,17 +494,13 @@ class PlaybackStateHolder @Inject constructor(
                         return@launch
                     }
 
-                    // Preserve playback state during queue rebuild
-                    val reordered = reorderQueueInPlace(player, originalQueue)
-                    if (!reordered) {
-                        val wasPlaying = player.isPlaying
-                        dualPlayerEngine.masterPlayer.setMediaItems(
-                            originalQueue.map { MediaItemBuilder.build(it) },
-                            originalIndex,
-                            currentPosition
-                        )
-                        if (wasPlaying && !player.isPlaying) {
-                            player.play()
+                    // Use bulk replace for large queues to avoid UI freeze
+                    if (originalQueue.size > BULK_REPLACE_THRESHOLD) {
+                        replacePlayerQueue(player, originalQueue, currentSongId, currentPosition)
+                    } else {
+                        val reordered = reorderQueueInPlace(player, originalQueue)
+                        if (!reordered) {
+                            replacePlayerQueue(player, originalQueue, currentSongId, currentPosition)
                         }
                     }
 

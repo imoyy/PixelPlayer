@@ -103,7 +103,8 @@ internal fun BoxScope.UnifiedPlayerMiniAndFullLayers(
                 LocalMaterialTheme provides albumColorScheme
             ) {
                 val fullPlayerScale by remember(bottomSheetOpenFraction) {
-                    derivedStateOf { lerp(1f, 0.95f, bottomSheetOpenFraction) }
+                    // Keep the depth effect, but avoid aggressive full-screen rescaling on every frame.
+                    derivedStateOf { lerp(1f, 0.972f, bottomSheetOpenFraction) }
                 }
 
                 val fullPlayerZIndex by remember {

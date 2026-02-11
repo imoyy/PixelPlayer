@@ -1,7 +1,8 @@
 package com.theveloper.pixelplay.presentation.components.scoped
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
@@ -37,7 +38,6 @@ internal fun rememberSheetOverlayState(
     hasSelectedSongForInfo: Boolean,
     showQueueSheet: Boolean,
     queueHiddenOffsetPx: Float,
-    queueSheetOffset: Animatable<Float, AnimationVector1D>,
     screenHeightPx: Float,
     castSheetOpenFraction: Float
 ): SheetOverlayState {
@@ -75,24 +75,19 @@ internal fun rememberSheetOverlayState(
         }
     }
 
-    val isQueueVisible by remember(showQueueSheet, queueHiddenOffsetPx, queueSheetOffset) {
+    val isQueueVisible by remember(showQueueSheet, queueHiddenOffsetPx, screenHeightPx) {
         derivedStateOf {
             showQueueSheet &&
                 queueHiddenOffsetPx > 0f &&
-                queueSheetOffset.value < queueHiddenOffsetPx
+                screenHeightPx > 0f
         }
     }
 
-    val queueVisualOpenFraction by remember(queueSheetOffset, showQueueSheet, screenHeightPx) {
-        derivedStateOf {
-            if (!showQueueSheet || screenHeightPx <= 0f) {
-                0f
-            } else {
-                val revealPx = (screenHeightPx - queueSheetOffset.value).coerceAtLeast(0f)
-                (revealPx / screenHeightPx).coerceIn(0f, 1f)
-            }
-        }
-    }
+    val queueVisualOpenFraction by animateFloatAsState(
+        targetValue = if (showQueueSheet && screenHeightPx > 0f) 1f else 0f,
+        animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+        label = "queueVisualOpenFraction"
+    )
 
     val bottomSheetOpenFraction by remember(queueVisualOpenFraction, castSheetOpenFraction) {
         derivedStateOf { max(queueVisualOpenFraction, castSheetOpenFraction) }

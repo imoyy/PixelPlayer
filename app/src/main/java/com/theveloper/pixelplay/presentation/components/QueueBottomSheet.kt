@@ -2,7 +2,9 @@ package com.theveloper.pixelplay.presentation.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -13,7 +15,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,16 +38,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Checkbox
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.FractionalThreshold
-import androidx.compose.material.rememberSwipeableState
-import androidx.compose.material.swipeable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -90,15 +86,13 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ClearAll
 import androidx.compose.material.icons.filled.LibraryAdd
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.rememberUpdatedState
@@ -176,11 +170,15 @@ import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.zIndex
 import coil.size.Size
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import java.util.RandomAccess
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
@@ -248,85 +246,152 @@ fun QueueBottomSheet(
         queue.indexOfFirst { it.id == currentSongId }
     }
 
-    // Generic wrapper to ensure unique keys for LazyColumn even with duplicate songs
-    // @Immutable is moved to top-level QueueUiItem class below for better recomposition behavior
-
     // Read show queue history preference
     val settingsState by settingsViewModel.uiState.collectAsState()
     val showQueueHistory = settingsState.showQueueHistory
 
-    // Show full queue including history (Apple Music style) OR only from current song.
-    // Keep songs as plain data here; stable QueueUiItem ids are reconciled below.
-    val displaySongs = remember(queue, showQueueHistory, currentSongIndex) {
-        if (showQueueHistory || currentSongIndex < 0) {
-            queue
-        } else {
-            queue.drop(currentSongIndex)
-        }
-    }
-    
-    // Offset to convert display indices to queue indices when history is hidden
+    // Offset to convert display indices to queue indices when history is hidden.
     val queueIndexOffset = if (showQueueHistory || currentSongIndex < 0) 0 else currentSongIndex
 
-    // Calculate the display index of the current song (depends on whether we show history or not)
-    val currentSongDisplayIndex = remember(displaySongs, currentSongId) {
-        displaySongs.indexOfFirst { it.id == currentSongId }
+    // Show full queue including history (Apple Music style) OR only from current song.
+    // Use subList when possible to avoid copying large queues.
+    val displaySongs = remember(queue, queueIndexOffset) {
+        if (queueIndexOffset == 0) {
+            queue
+        } else if (queue is RandomAccess) {
+            queue.subList(queueIndexOffset, queue.size)
+        } else {
+            queue.drop(queueIndexOffset)
+        }
     }
 
-    val queueSnapshot = remember(queue) { queue.toList() }
+    // Calculate the display index of the current song (depends on whether we show history or not).
+    val currentSongDisplayIndex = remember(currentSongIndex, queueIndexOffset) {
+        if (currentSongIndex < 0) -1 else currentSongIndex - queueIndexOffset
+    }
 
     val listState = rememberLazyListState()
     val queueListScope = rememberCoroutineScope()
     var scrollToTopJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val displaySongCount = displaySongs.size
 
-    var items by remember { mutableStateOf(displaySongs.map { QueueUiItem(song = it) }) }
-    var justReordered by remember { mutableStateOf(false) }
+    // Local order used only while previewing a drag reorder.
+    var reorderPreviewOrder by remember { mutableStateOf<List<Int>?>(null) }
+    var reorderPreviewKeys by remember { mutableStateOf<List<Long>?>(null) }
+    var reorderPreviewBaseQueue by remember { mutableStateOf<List<Song>?>(null) }
+    var pendingReorderExpectedIds by remember { mutableStateOf<List<String>?>(null) }
+    var pendingReorderGraceUpdates by remember { mutableIntStateOf(0) }
 
-    // --- Incremental rendering (pagination) ---
-    // Only render a window of items initially, then load more as user scrolls.
-    val queuePageSize = 50
-    var renderedItemCount by remember { mutableIntStateOf(
-        kotlin.math.min(displaySongs.size, maxOf(queuePageSize, currentSongDisplayIndex + queuePageSize))
-    ) }
-    
-    // Update items when queue changes, but skip if we just reordered to avoid flicker
-    LaunchedEffect(displaySongs) {
-        if (justReordered) {
-            justReordered = false
-        } else {
-            items = reconcileQueueUiItems(items, displaySongs)
-        }
-        // Reset rendered count for new queue, ensuring current song is visible
-        renderedItemCount = kotlin.math.min(
-            items.size,
-            maxOf(queuePageSize, currentSongDisplayIndex + queuePageSize)
-        )
-    }
-    
-    // Animate scroll when current song changes
-    LaunchedEffect(currentSongDisplayIndex) {
-        if (currentSongDisplayIndex > 0) {
-            // Ensure the current song index is within the rendered window
-            if (currentSongDisplayIndex >= renderedItemCount) {
-                renderedItemCount = kotlin.math.min(
-                    items.size,
-                    currentSongDisplayIndex + queuePageSize
-                )
-            }
-            listState.animateScrollToItem(currentSongDisplayIndex)
-        }
+    // Stable keys for queue rows to prevent state recycling glitches on remove/reorder.
+    var committedDisplaySongIds by remember { mutableStateOf(displaySongs.map { it.id }) }
+    var committedDisplayKeys by remember { mutableStateOf(List(displaySongCount) { it.toLong() }) }
+    var nextStableQueueItemKey by remember { mutableLongStateOf(displaySongCount.toLong()) }
+
+    // Track queue order by content (not list identity) to avoid clearing preview
+    // when upstream emits equivalent list instances during drag.
+    var reorderPreviewQueueSignature by remember { mutableStateOf<Int?>(null) }
+    val displaySongsSignature = remember(displaySongs, queueIndexOffset) {
+        (queueIndexOffset * 31) + System.identityHashCode(displaySongs)
     }
 
-    // Load more items as the user scrolls near the end of the rendered window
-    LaunchedEffect(listState, items.size) {
-        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
-            .distinctUntilChanged()
-            .collect { lastVisibleIndex ->
-                if (lastVisibleIndex >= renderedItemCount - 15 && renderedItemCount < items.size) {
-                    renderedItemCount = kotlin.math.min(items.size, renderedItemCount + queuePageSize)
+    fun remapCommittedKeysForDisplay(newSongs: List<Song>) {
+        // Fast path: common queue-skip case where display list is just a suffix of previous display list.
+        if (committedDisplaySongIds.isNotEmpty() && newSongs.isNotEmpty()) {
+            val firstNewId = newSongs.first().id
+            val startIndex = committedDisplaySongIds.indexOf(firstNewId)
+            if (startIndex >= 0 && startIndex + newSongs.size <= committedDisplaySongIds.size) {
+                var suffixMatches = true
+                for (i in newSongs.indices) {
+                    if (committedDisplaySongIds[startIndex + i] != newSongs[i].id) {
+                        suffixMatches = false
+                        break
+                    }
+                }
+                if (suffixMatches) {
+                    committedDisplaySongIds = committedDisplaySongIds.subList(startIndex, startIndex + newSongs.size).toList()
+                    committedDisplayKeys = committedDisplayKeys.subList(startIndex, startIndex + newSongs.size).toList()
+                    return
                 }
             }
+        }
+
+        val reusableKeysBySongId = mutableMapOf<String, ArrayDeque<Long>>()
+        committedDisplaySongIds.forEachIndexed { index, songId ->
+            val key = committedDisplayKeys.getOrNull(index) ?: return@forEachIndexed
+            reusableKeysBySongId.getOrPut(songId) { ArrayDeque() }.addLast(key)
+        }
+
+        var nextKey = nextStableQueueItemKey
+        val newKeys = ArrayList<Long>(newSongs.size)
+        newSongs.forEach { song ->
+            val bucket = reusableKeysBySongId[song.id]
+            val reusedKey = if (bucket != null && bucket.isNotEmpty()) bucket.removeFirst() else null
+            if (reusedKey != null) {
+                newKeys.add(reusedKey)
+            } else {
+                newKeys.add(nextKey)
+                nextKey++
+            }
+        }
+
+        committedDisplaySongIds = newSongs.map { it.id }
+        committedDisplayKeys = newKeys
+        nextStableQueueItemKey = nextKey
     }
+
+    // Reset local reorder preview only when the queue truly changes to something new.
+    LaunchedEffect(displaySongsSignature, queueIndexOffset) {
+        val expectedIds = pendingReorderExpectedIds
+
+        if (expectedIds != null) {
+            val currentDisplayIds = displaySongs.map { it.id }
+            if (currentDisplayIds == expectedIds) {
+                reorderPreviewKeys
+                    ?.takeIf { it.size == displaySongs.size }
+                    ?.let { previewKeys ->
+                        committedDisplaySongIds = currentDisplayIds
+                        committedDisplayKeys = previewKeys
+                    }
+                reorderPreviewOrder = null
+                reorderPreviewKeys = null
+                reorderPreviewBaseQueue = null
+                pendingReorderExpectedIds = null
+                pendingReorderGraceUpdates = 0
+                remapCommittedKeysForDisplay(displaySongs)
+                reorderPreviewQueueSignature = displaySongsSignature
+                return@LaunchedEffect
+            }
+
+            if (reorderPreviewOrder != null && pendingReorderGraceUpdates > 0) {
+                pendingReorderGraceUpdates -= 1
+                reorderPreviewQueueSignature = displaySongsSignature
+                return@LaunchedEffect
+            }
+
+            pendingReorderExpectedIds = null
+            pendingReorderGraceUpdates = 0
+            reorderPreviewOrder = null
+            reorderPreviewKeys = null
+            reorderPreviewBaseQueue = null
+        }
+
+        if (reorderPreviewQueueSignature != null && reorderPreviewQueueSignature != displaySongsSignature) {
+            // Queue data changed from external source - safe to clear preview
+            reorderPreviewOrder = null
+            reorderPreviewKeys = null
+            reorderPreviewBaseQueue = null
+        }
+        remapCommittedKeysForDisplay(displaySongs)
+        reorderPreviewQueueSignature = displaySongsSignature
+    }
+
+    // Jump directly to current song when it changes. Avoid a long animated scroll on large queues.
+    LaunchedEffect(currentSongDisplayIndex, displaySongCount) {
+        if (currentSongDisplayIndex >= 0 && currentSongDisplayIndex < displaySongCount) {
+            listState.scrollToItem(currentSongDisplayIndex)
+        }
+    }
+
     val canDragSheetFromList by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
@@ -339,33 +404,40 @@ fun QueueBottomSheet(
     val appHapticsConfig = LocalAppHapticsConfig.current
     var lastMovedFrom by remember { mutableStateOf<Int?>(null) }
     var lastMovedTo by remember { mutableStateOf<Int?>(null) }
-    var pendingReorderSongId by remember { mutableStateOf<String?>(null) }
     var reorderHandleInUse by remember { mutableStateOf(false) }
     val updatedReorderHandleInUse by rememberUpdatedState(reorderHandleInUse)
 
-    fun mapKeyToLocalIndex(key: Any?): Int? {
-        val uid = key as? String ?: return null
-        val localIndex = items.indexOfFirst { it.uniqueId == uid }
-        return localIndex.takeIf { it != -1 }
+    fun mapKeyToLocalIndex(key: Any?, keys: List<Long>): Int? {
+        val stableKey = key as? Long ?: return null
+        val localIndex = keys.indexOf(stableKey)
+        return localIndex.takeIf { it >= 0 }
     }
 
     val reorderableState = rememberReorderableLazyListState(
         lazyListState = listState,
         onMove = { from, to ->
-            val fromLocalIndex = mapKeyToLocalIndex(from.key) ?: return@rememberReorderableLazyListState
-            val toLocalIndex = mapKeyToLocalIndex(to.key) ?: return@rememberReorderableLazyListState
-            val movingItem = items.getOrNull(fromLocalIndex)
-            val movingSongId = movingItem?.song?.id
-            items = items.toMutableList().apply {
+            if (reorderPreviewOrder == null) {
+                reorderPreviewBaseQueue = queue
+            }
+            val currentOrder = reorderPreviewOrder ?: List(displaySongCount) { queueIndexOffset + it }
+            val currentKeys = reorderPreviewKeys
+                ?: committedDisplayKeys.takeIf { it.size == displaySongCount }
+                ?: List(displaySongCount) { (queueIndexOffset + it).toLong() }
+
+            val fromLocalIndex = mapKeyToLocalIndex(from.key, currentKeys) ?: return@rememberReorderableLazyListState
+            val toLocalIndex = mapKeyToLocalIndex(to.key, currentKeys) ?: return@rememberReorderableLazyListState
+            if (fromLocalIndex == toLocalIndex) return@rememberReorderableLazyListState
+
+            reorderPreviewOrder = currentOrder.toMutableList().apply {
+                add(toLocalIndex, removeAt(fromLocalIndex))
+            }
+            reorderPreviewKeys = currentKeys.toMutableList().apply {
                 add(toLocalIndex, removeAt(fromLocalIndex))
             }
             if (lastMovedFrom == null) {
                 lastMovedFrom = fromLocalIndex
             }
             lastMovedTo = toLocalIndex
-            if (movingSongId != null && pendingReorderSongId == null) {
-                pendingReorderSongId = movingSongId
-            }
         },
     )
     val isReordering by remember {
@@ -373,12 +445,6 @@ fun QueueBottomSheet(
     }
     val updatedIsReordering by rememberUpdatedState(isReordering)
 
-    // During reorder, render all items so drag indices map correctly
-    LaunchedEffect(isReordering) {
-        if (isReordering) {
-            renderedItemCount = items.size
-        }
-    }
     val updatedOnQueueDragStart by rememberUpdatedState(onQueueDragStart)
     val updatedOnQueueDrag by rememberUpdatedState(onQueueDrag)
     val updatedOnQueueRelease by rememberUpdatedState(onQueueRelease)
@@ -387,13 +453,11 @@ fun QueueBottomSheet(
         if (!reorderableState.isAnyItemDragging) {
             val fromIndex = lastMovedFrom
             val toIndex = lastMovedTo
-            val movedSongId = pendingReorderSongId
 
             lastMovedFrom = null
             lastMovedTo = null
-            pendingReorderSongId = null
 
-            if (fromIndex != null && toIndex != null && movedSongId != null) {
+            if (fromIndex != null && toIndex != null) {
                 // Convert display indices to queue indices by adding the offset
                 val fromQueueIndex = fromIndex + queueIndexOffset
                 val toQueueIndex = toIndex + queueIndexOffset
@@ -402,13 +466,25 @@ fun QueueBottomSheet(
                 val toWithinQueue = toQueueIndex in queue.indices
 
                 if (fromWithinQueue && toWithinQueue && fromQueueIndex != toQueueIndex) {
-                    justReordered = true
+                    val previewBase = reorderPreviewBaseQueue ?: queue
+                    val expectedIds = reorderPreviewOrder
+                        ?.mapNotNull { previewBase.getOrNull(it)?.id }
+                        ?.takeIf { it.size == displaySongCount }
+                    pendingReorderExpectedIds = expectedIds
+                    pendingReorderGraceUpdates = if (expectedIds != null) 6 else 0
+                    // Keep reorderPreviewOrder alive so items don't snap back
+                    // while we wait for the new queue data to propagate.
                     onReorder(fromQueueIndex, toQueueIndex)
                     return@LaunchedEffect
                 }
             }
 
-            items = reconcileQueueUiItems(items, displaySongs)
+            // Only clear preview if no valid reorder was dispatched
+            reorderPreviewOrder = null
+            reorderPreviewKeys = null
+            reorderPreviewBaseQueue = null
+            pendingReorderExpectedIds = null
+            pendingReorderGraceUpdates = 0
         }
     }
 
@@ -443,7 +519,7 @@ fun QueueBottomSheet(
 
     fun finalizeListDrag(velocity: Float = 0f) {
         if (draggingSheetFromList) {
-            onQueueRelease(listDragAccumulated, velocity)
+            updatedOnQueueRelease(listDragAccumulated, velocity)
             draggingSheetFromList = false
             listDragAccumulated = 0f
         }
@@ -461,7 +537,7 @@ fun QueueBottomSheet(
 
                 if (draggingSheetFromList) {
                     listDragAccumulated += available.y
-                    onQueueDrag(available.y)
+                    updatedOnQueueDrag(available.y)
                     return available
                 }
 
@@ -469,10 +545,10 @@ fun QueueBottomSheet(
                     if (!draggingSheetFromList) {
                         draggingSheetFromList = true
                         listDragAccumulated = 0f
-                        onQueueDragStart()
+                        updatedOnQueueDragStart()
                     }
                     listDragAccumulated += available.y
-                    onQueueDrag(available.y)
+                    updatedOnQueueDrag(available.y)
                     return Offset(0f, available.y)
                 }
 
@@ -491,9 +567,9 @@ fun QueueBottomSheet(
                     if (!draggingSheetFromList) {
                         draggingSheetFromList = true
                         listDragAccumulated = 0f
-                        onQueueDragStart()
+                        updatedOnQueueDragStart()
                     }
-                    onQueueRelease(listDragAccumulated, available.y)
+                    updatedOnQueueRelease(listDragAccumulated, available.y)
                     draggingSheetFromList = false
                     listDragAccumulated = 0f
                     return available
@@ -506,7 +582,7 @@ fun QueueBottomSheet(
 
                 if (draggingSheetFromList && source == NestedScrollSource.Drag && available.y != 0f) {
                     listDragAccumulated += available.y
-                    onQueueDrag(available.y)
+                    updatedOnQueueDrag(available.y)
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
@@ -552,10 +628,6 @@ fun QueueBottomSheet(
             }
         }
 
-    LaunchedEffect(listState.isScrollInProgress, draggingSheetFromList) {
-        if (draggingSheetFromList && !listState.isScrollInProgress) finalizeListDrag()
-    }
-
     Surface(
         modifier = modifier,
         shape = shape,
@@ -582,14 +654,18 @@ fun QueueBottomSheet(
                             scrollToTopJob?.cancel()
                             scrollToTopJob = queueListScope.launch {
                                 try {
-                                    val targetIndex = currentSongDisplayIndex.coerceAtLeast(0)
+                                    if (displaySongCount == 0) return@launch
+
+                                    val targetIndex = currentSongDisplayIndex
+                                        .coerceAtLeast(0)
+                                        .coerceAtMost(displaySongCount - 1)
                                     val currentVisibleIndex = listState.firstVisibleItemIndex
                                     // Use warm-up scroll for large jumps to ensure smooth animation
                                     if (kotlin.math.abs(currentVisibleIndex - targetIndex) > 6) {
                                         val warmupIndex = if (targetIndex > currentVisibleIndex) {
                                             (targetIndex - 6).coerceAtLeast(0)
                                         } else {
-                                            (targetIndex + 6).coerceAtMost(items.size - 1)
+                                            (targetIndex + 6).coerceAtMost(displaySongCount - 1)
                                         }
                                         listState.scrollToItem(warmupIndex)
                                     }
@@ -620,7 +696,7 @@ fun QueueBottomSheet(
                         .then(directSheetDragModifier)
                 )
 
-                if (items.isEmpty()) {
+                if (displaySongCount == 0) {
                     Box(
                         modifier         = Modifier
                             .fillMaxWidth()
@@ -664,18 +740,44 @@ fun QueueBottomSheet(
                                 Spacer(modifier = Modifier.height(6.dp))
                             }
 
-                            val visibleItems = items.take(renderedItemCount)
-                            itemsIndexed(visibleItems, key = { _, item -> item.uniqueId }) { index, item ->
-                                val song = item.song
+                            val activeOrder = reorderPreviewOrder ?: List(displaySongCount) { queueIndexOffset + it }
+                            val activeKeys = reorderPreviewKeys
+                                ?: committedDisplayKeys.takeIf { it.size == displaySongCount }
+                                ?: List(displaySongCount) { (queueIndexOffset + it).toLong() }
+                            items(
+                                count = displaySongCount,
+                                key = { index -> activeKeys.getOrNull(index) ?: (queueIndexOffset + index).toLong() }
+                            ) { index ->
+                                val queueIndex = activeOrder.getOrNull(index) ?: return@items
+                                val itemStableKey = activeKeys.getOrNull(index) ?: return@items
+                                val songSource = reorderPreviewBaseQueue ?: queue
+                                val song = songSource.getOrNull(queueIndex) ?: return@items
                                 // Use currentSongDisplayIndex for comparison since index is in displayQueue
                                 val canReorder = index > currentSongDisplayIndex
                                 ReorderableItem(
                                     state = reorderableState,
-                                    key = item.uniqueId,
-                                    enabled = canReorder
+                                    key = itemStableKey,
+                                    enabled = canReorder,
+                                    animateItemModifier = when {
+                                        isReordering || reorderHandleInUse || reorderPreviewOrder != null -> Modifier.animateItem(
+                                            placementSpec = spring(
+                                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
+                                        )
+                                        else -> Modifier.animateItem(
+                                            fadeInSpec = tween(durationMillis = 140),
+                                            fadeOutSpec = tween(durationMillis = 120),
+                                            placementSpec = tween(durationMillis = 180)
+                                        )
+                                    }
                                 ) { isDragging ->
                                     val scale by animateFloatAsState(
-                                        targetValue = if (isDragging) 1.05f else 1f,
+                                        targetValue = if (isDragging) 1.015f else 1f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        ),
                                         label = "scaleAnimation"
                                     )
 
@@ -700,7 +802,8 @@ fun QueueBottomSheet(
                                         isDragHandleVisible = canReorder,
                                         isRemoveButtonVisible = false,
                                         enableSwipeToDismiss = canReorder,
-                                        onDismiss = { onRemoveSong(song.id) },
+                                        swipeStateIdentity = (itemStableKey shl 32) xor queueIndex.toLong(),
+                                        onDismissSong = { onRemoveSong(song.id) },
                                         isFromPlaylist = true,
                                         onMoreOptionsClick = { onSongInfoClick(song) },
                                         dragHandle = {
@@ -736,23 +839,6 @@ fun QueueBottomSheet(
                                             }
                                         }
                                     )
-                                }
-                            }
-
-                            // Loading indicator when more items are available
-                            if (renderedItemCount < items.size) {
-                                item("queue_loading_more") {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -793,12 +879,9 @@ fun QueueBottomSheet(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically // Alinea FAB y Toolbar al centro verticalmente
                 ) {
-                    // Extracted toolbar for better recomposition behavior
-    val isTimerActiveDerived = remember { 
-        derivedStateOf { activeTimerValueDisplay.value != null }
-    }
-    
-    // ...
+                    val isTimerActiveDerived = remember {
+                        derivedStateOf { activeTimerValueDisplay.value != null }
+                    }
                     QueueControlsToolbar(
                         isShuffleOn = isShuffleOn,
                         repeatMode = repeatMode,
@@ -908,10 +991,10 @@ fun QueueBottomSheet(
                                         "Current Queue"
                                     }
                                     onRequestSaveAsPlaylist(
-                                        queueSnapshot,
+                                        queue,
                                         defaultName
                                     ) { name, selectedIds ->
-                                        val orderedSelection = queueSnapshot
+                                        val orderedSelection = queue
                                             .filter { selectedIds.contains(it.id) }
                                             .map { it.id }
                                         if (orderedSelection.isNotEmpty()) {
@@ -1684,7 +1767,6 @@ private fun QueueMiniPlayer(
     }
 }
 
-@OptIn(ExperimentalMaterialApi::class)
 @Composable
 fun QueuePlaylistSongItem(
     modifier: Modifier = Modifier,
@@ -1700,7 +1782,8 @@ fun QueuePlaylistSongItem(
     isDragHandleVisible: Boolean,
     isRemoveButtonVisible: Boolean,
     enableSwipeToDismiss: Boolean = false,
-    onDismiss: () -> Unit = {},
+    swipeStateIdentity: Long = 0L,
+    onDismissSong: () -> Unit = {},
     isFromPlaylist: Boolean
 ) {
     val colors = MaterialTheme.colorScheme
@@ -1748,291 +1831,254 @@ fun QueuePlaylistSongItem(
     )
     val mvContainerColor = if (isCurrentSong) colors.tertiaryContainer else colors.surfaceContainerHigh
     val mvContentColor = if (isCurrentSong) colors.onTertiaryContainer else colors.onSurface
-
-    val density = LocalDensity.current
-
-    BoxWithConstraints(modifier = modifier) {
-        val maxWidthPx = constraints.maxWidth.toFloat()
-        val swipeAnchors = remember(maxWidthPx) {
-            mapOf(0f to SwipeState.Resting, -maxWidthPx to SwipeState.Dismissed)
+    val hapticView = LocalView.current
+    val appHapticsConfig = LocalAppHapticsConfig.current
+    val dismissScope = rememberCoroutineScope()
+    val dismissEnabled = enableSwipeToDismiss && !isDragging
+    val dismissState = remember(swipeStateIdentity) {
+        SwipeToDismissBoxState(
+            initialValue = SwipeToDismissBoxValue.Settled,
+            positionalThreshold = { totalDistance -> totalDistance * 0.28f }
+        )
+    }
+    var dismissHandled by remember { mutableStateOf(false) }
+    LaunchedEffect(dismissEnabled) {
+        if (!dismissEnabled && dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            runCatching { dismissState.reset() }
         }
-        val capsuleGap = 4.dp
-        val dismissalThreshold = 0.25f
-        val iconRevealThreshold = dismissalThreshold
-
-        var latestDismissProgress by remember { mutableStateOf(0f) }
-        val swipeableState = rememberSwipeableState(
-            initialValue = SwipeState.Resting,
-            confirmStateChange = { target ->
-                if (target == SwipeState.Dismissed && latestDismissProgress < dismissalThreshold) {
-                    return@rememberSwipeableState false
-                }
-                true
-            }
-        )
-
-        val offsetX by remember { derivedStateOf { if (enableSwipeToDismiss) swipeableState.offset.value else 0f } }
-        val dismissProgress by remember { derivedStateOf { (offsetX / -maxWidthPx).coerceIn(0f, 1f) } }
-
-        val capsuleWidth by animateDpAsState(
-            targetValue = with(density) { (maxWidthPx * dismissProgress).toDp() },
-            label = "capsuleWidth"
-        )
-        val iconAlpha by animateFloatAsState(
-            targetValue = if (dismissProgress > iconRevealThreshold) 1f else 0f,
-            label = "dismissIconAlpha"
-        )
-        val iconScale by animateFloatAsState(
-            targetValue = if (dismissProgress > iconRevealThreshold) 1f else 0.8f,
-            label = "dismissIconScale"
-        )
-
-        val hapticView = LocalView.current
-        val appHapticsConfig = LocalAppHapticsConfig.current
-        var dismissHapticPlayed by remember { mutableStateOf(false) }
-
-        LaunchedEffect(dismissProgress, enableSwipeToDismiss) {
-            if (!enableSwipeToDismiss) return@LaunchedEffect
-
-            latestDismissProgress = dismissProgress
-
-            val hapticTriggerProgress = dismissalThreshold
-            val resetThreshold = dismissalThreshold * 0.6f
-
-            if (dismissProgress > hapticTriggerProgress && !dismissHapticPlayed) {
-                dismissHapticPlayed = true
-                performAppCompatHapticFeedback(
-                    hapticView,
-                    appHapticsConfig,
-                    HapticFeedbackConstantsCompat.GESTURE_END
-                )
-            } else if (dismissProgress < resetThreshold) {
-                dismissHapticPlayed = false
-            }
+    }
+    LaunchedEffect(dismissState.currentValue) {
+        if (dismissState.currentValue == SwipeToDismissBoxValue.Settled) {
+            dismissHandled = false
         }
+    }
 
-        var isDismissAnimating by remember { mutableStateOf(false) }
-        val dismissExitFraction by animateFloatAsState(
-            targetValue = if (isDismissAnimating) 1f else 0f,
-            label = "dismissExitFraction",
-            finishedListener = { fraction ->
-                if (fraction == 1f && isDismissAnimating) {
-                    isDismissAnimating = false
-                    onDismiss()
-                }
-            }
-        )
+    val isSwipeTargeted by remember {
+        derivedStateOf { dismissState.targetValue == SwipeToDismissBoxValue.EndToStart }
+    }
+    var dismissCommitPulse by remember { mutableStateOf(false) }
 
-        val exitOffsetPx by remember { derivedStateOf { maxWidthPx * dismissExitFraction } }
-        val dismissAlpha by remember { derivedStateOf { 1f - dismissExitFraction } }
-
-        LaunchedEffect(enableSwipeToDismiss, swipeableState.currentValue) {
-            if (!enableSwipeToDismiss) {
-                isDismissAnimating = false
-                return@LaunchedEffect
-            }
-
-            if (swipeableState.currentValue == SwipeState.Dismissed && !isDismissAnimating) {
-                isDismissAnimating = true
-            }
+    // Haptic feedback when crossing the dismiss threshold (both directions)
+    var wasTargeted by remember { mutableStateOf(false) }
+    LaunchedEffect(isSwipeTargeted) {
+        if (isSwipeTargeted && !wasTargeted) {
+            // Crossed threshold -> commit zone
+            performAppCompatHapticFeedback(
+                hapticView,
+                appHapticsConfig,
+                HapticFeedbackConstantsCompat.GESTURE_THRESHOLD_ACTIVATE
+            )
+        } else if (!isSwipeTargeted && wasTargeted) {
+            // Crossed back out of threshold
+            performAppCompatHapticFeedback(
+                hapticView,
+                appHapticsConfig,
+                HapticFeedbackConstantsCompat.GESTURE_THRESHOLD_DEACTIVATE
+            )
         }
+        wasTargeted = isSwipeTargeted
+    }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .swipeable(
-                    enabled = enableSwipeToDismiss && !isDragging,
-                    state = swipeableState,
-                    anchors = swipeAnchors,
-                    thresholds = { _, _ -> FractionalThreshold(dismissalThreshold) },
-                    velocityThreshold = 1200.dp,
-                    orientation = Orientation.Horizontal,
-                    resistance = null,
-                )
-        ) {
-            Row(
+    val dismissBackgroundColor by animateColorAsState(
+        targetValue = if (isSwipeTargeted) colors.errorContainer else colors.errorContainer.copy(alpha = 0.82f),
+        animationSpec = tween(durationMillis = 150),
+        label = "dismissBackgroundColor"
+    )
+
+    SwipeToDismissBox(
+        modifier = modifier.fillMaxWidth(),
+        state = dismissState,
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = dismissEnabled,
+        backgroundContent = {
+            BoxWithConstraints(
                 modifier = Modifier
-                    .matchParentSize()
-                    .clip(itemShape)
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                    .fillMaxSize()
+                    .padding(horizontal = 12.dp)
             ) {
-                Spacer(modifier = Modifier.width(capsuleGap))
+                val density = LocalDensity.current
+                val maxRevealWidthPx = constraints.maxWidth.toFloat()
+                val revealWidthPx = (-runCatching { dismissState.requireOffset() }
+                    .getOrDefault(0f)).coerceIn(0f, maxRevealWidthPx)
+                val revealWidthDp = with(density) { revealWidthPx.toDp() }
+                val revealProgress = (revealWidthPx / with(density) { 56.dp.toPx() })
+                    .coerceIn(0f, 1f)
+
+                val dismissIconAlpha by animateFloatAsState(
+                    targetValue = if (dismissCommitPulse) 1f else revealProgress * if (isSwipeTargeted) 1f else 0.88f,
+                    animationSpec = tween(durationMillis = 120),
+                    label = "dismissIconAlpha"
+                )
+                val dismissIconScale by animateFloatAsState(
+                    targetValue = when {
+                        dismissCommitPulse -> 1.28f
+                        isSwipeTargeted -> 1.08f
+                        else -> 0.95f
+                    },
+                    animationSpec = tween(durationMillis = 120),
+                    label = "dismissIconScale"
+                )
+                val dismissIconRotation by animateFloatAsState(
+                    targetValue = if (dismissCommitPulse) 90f else 0f,
+                    animationSpec = tween(durationMillis = 120),
+                    label = "dismissIconRotation"
+                )
 
                 Box(
                     modifier = Modifier
+                        .align(Alignment.CenterEnd)
                         .fillMaxHeight()
-                        .width(capsuleWidth)
-                        .clip(CircleShape)
-                        .background(colors.errorContainer),
-                    contentAlignment = Alignment.Center
+                        .width(revealWidthDp)
+                        .clip(itemShape)
+                        .background(dismissBackgroundColor),
+                    contentAlignment = Alignment.CenterEnd
                 ) {
                     Icon(
                         painter = painterResource(R.drawable.rounded_close_24),
                         contentDescription = "Dismiss song",
-                        modifier = Modifier.graphicsLayer {
-                            scaleX = iconScale
-                            scaleY = iconScale
-                            alpha = iconAlpha
-                        },
+                        modifier = Modifier
+                            .padding(end = 20.dp)
+                            .graphicsLayer {
+                                alpha = dismissIconAlpha
+                                scaleX = dismissIconScale
+                                scaleY = dismissIconScale
+                                rotationZ = dismissIconRotation
+                            },
                         tint = colors.onErrorContainer
                     )
                 }
             }
-
-            Surface(
-                modifier = Modifier
-                    .padding(start = 12.dp, end = 12.dp)
-                    .offset { IntOffset((offsetX - exitOffsetPx).roundToInt(), 0) }
-                    .graphicsLayer { alpha = dismissAlpha }
-                    .clip(itemShape)
-                    .clickable(enabled = offsetX == 0f && !isDismissAnimating) {
-                        onClick()
-                    },
-                shape = itemShape,
-                color = backgroundColor,
-                tonalElevation = elevation,
-                shadowElevation = elevation
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        },
+        onDismiss = { direction ->
+            if (!dismissEnabled || direction != SwipeToDismissBoxValue.EndToStart || dismissHandled) {
+                return@SwipeToDismissBox
+            }
+            dismissHandled = true
+            performAppCompatHapticFeedback(
+                hapticView,
+                appHapticsConfig,
+                HapticFeedbackConstantsCompat.GESTURE_END
+            )
+            dismissCommitPulse = true
+            onDismissSong()
+            dismissScope.launch {
+                delay(140)
+                dismissCommitPulse = false
+                runCatching { dismissState.reset() }
+            }
+        }
+    ) {
+        Surface(
+            modifier = Modifier
+                .padding(horizontal = 12.dp)
+                .clip(itemShape)
+                .clickable(
+                    enabled = dismissState.currentValue == SwipeToDismissBoxValue.Settled
                 ) {
-                    AnimatedVisibility(visible = isDragHandleVisible) {
-                        dragHandle()
-                    }
+                    onClick()
+                },
+            shape = itemShape,
+            color = backgroundColor,
+            tonalElevation = elevation,
+            shadowElevation = elevation
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AnimatedVisibility(visible = isDragHandleVisible) {
+                    dragHandle()
+                }
 
-                    val albumArtPadding by animateDpAsState(
-                        targetValue = if (isDragHandleVisible) 6.dp else 12.dp,
-                        label = "albumArtPadding"
+                val albumArtPadding by animateDpAsState(
+                    targetValue = if (isDragHandleVisible) 6.dp else 12.dp,
+                    label = "albumArtPadding"
+                )
+                Spacer(Modifier.width(albumArtPadding))
+
+                SmartImage(
+                    model = song.albumArtUriString,
+                    shape = albumShape,
+                    contentDescription = "Carátula",
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(albumShape),
+                    contentScale = ContentScale.Crop
+                )
+
+                Spacer(Modifier.width(16.dp))
+
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = if (isCurrentSong) colors.primary else colors.onSurface,
+                        fontWeight = if (isCurrentSong) FontWeight.Bold else FontWeight.Normal,
+                        style = MaterialTheme.typography.bodyLarge
                     )
-                    Spacer(Modifier.width(albumArtPadding))
+                    Text(
+                        song.displayArtist, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
+                    )
+                }
 
-                    SmartImage(
-                        model = song.albumArtUriString,
-                        shape = albumShape,
-                        contentDescription = "Carátula",
+                if (isCurrentSong) {
+                    if (isPlaying != null) {
+                        PlayingEqIcon(
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .size(width = 18.dp, height = 16.dp),
+                            color = colors.secondary,
+                            isPlaying = isPlaying
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        if (!isRemoveButtonVisible) {
+                            Spacer(Modifier.width(8.dp))
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.width(8.dp))
+                }
+
+                if (isFromPlaylist) {
+                    FilledIconButton(
+                        onClick = { onMoreOptionsClick(song) },
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = mvContainerColor,
+                            contentColor = mvContentColor
+                        ),
                         modifier = Modifier
-                            .size(42.dp)
-                            .clip(albumShape),
-                        contentScale = ContentScale.Crop
-                    )
-
-                    Spacer(Modifier.width(16.dp))
-
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            color = if (isCurrentSong) colors.primary else colors.onSurface,
-                            fontWeight = if (isCurrentSong) FontWeight.Bold else FontWeight.Normal,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            song.displayArtist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (isCurrentSong) colors.primary.copy(alpha = 0.8f) else colors.onSurfaceVariant
+                            .size(36.dp)
+                            .padding(end = 14.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "More options for ${song.title}",
+                            modifier = Modifier.size(24.dp)
                         )
                     }
+                }
 
-                    if (isCurrentSong) {
-                        if (isPlaying != null) {
-                            PlayingEqIcon(
-                                modifier = Modifier
-                                    .padding(start = 8.dp)
-                                    .size(width = 18.dp, height = 16.dp),
-                                color = colors.secondary,
-                                isPlaying = isPlaying
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            if (!isRemoveButtonVisible){
-                                Spacer(Modifier.width(8.dp))
-                            }
-                        }
-                    } else {
-                        Spacer(Modifier.width(8.dp))
-                    }
-
-                    if (isFromPlaylist) {
-                        FilledIconButton(
-                            onClick = { onMoreOptionsClick(song) },
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = mvContainerColor,
-                                contentColor = mvContentColor //.copy(alpha = 0.7f)
-                            ),
-                            modifier = Modifier
-                                .size(36.dp)
-                                .padding(end = 14.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "More options for ${song.title}",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(visible = isRemoveButtonVisible && !enableSwipeToDismiss) {
-                        FilledIconButton(
-                            onClick = onRemoveClick,
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = colors.surfaceContainer,
-                                contentColor = colors.onSurface
-                            ),
-                            modifier = Modifier
-                                .width(40.dp)
-                                .height(40.dp)
-                                .padding(start = 4.dp, end = 8.dp)
-                        ) {
-                            Icon(
-                                modifier = Modifier.size(18.dp),
-                                painter = painterResource(R.drawable.rounded_close_24),
-                                contentDescription = "Remove from playlist",
-                            )
-                        }
+                AnimatedVisibility(visible = isRemoveButtonVisible && !enableSwipeToDismiss) {
+                    FilledIconButton(
+                        onClick = onRemoveClick,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = colors.surfaceContainer,
+                            contentColor = colors.onSurface
+                        ),
+                        modifier = Modifier
+                            .width(40.dp)
+                            .height(40.dp)
+                            .padding(start = 4.dp, end = 8.dp)
+                    ) {
+                        Icon(
+                            modifier = Modifier.size(18.dp),
+                            painter = painterResource(R.drawable.rounded_close_24),
+                            contentDescription = "Remove from playlist",
+                        )
                     }
                 }
             }
         }
     }
 }
-
-@OptIn(ExperimentalMaterialApi::class)
-private enum class SwipeState { Resting, Dismissed }
-
-private fun reconcileQueueUiItems(
-    existingItems: List<QueueUiItem>,
-    songsToShow: List<Song>
-): List<QueueUiItem> {
-    if (songsToShow.isEmpty()) return emptyList()
-    if (existingItems.isEmpty()) return songsToShow.map { QueueUiItem(song = it) }
-
-    val reusableItemsBySongId = HashMap<String, kotlin.collections.ArrayDeque<QueueUiItem>>(existingItems.size)
-    existingItems.forEach { item ->
-        reusableItemsBySongId
-            .getOrPut(item.song.id) { kotlin.collections.ArrayDeque() }
-            .addLast(item)
-    }
-
-    return buildList(songsToShow.size) {
-        songsToShow.forEach { song ->
-            val bucket = reusableItemsBySongId[song.id]
-            val reusedItem = if (bucket != null && bucket.isNotEmpty()) bucket.removeFirst() else null
-            if (reusedItem != null) {
-                add(reusedItem.copy(song = song))
-            } else {
-                add(QueueUiItem(song = song))
-            }
-        }
-    }
-}
-
-/**
- * Immutable wrapper for queue items to ensure stable keys and prevent unnecessary recompositions.
- * Using @Immutable tells Compose that once created, this object's properties won't change.
- */
-@Immutable
-data class QueueUiItem(
-    val uniqueId: String = java.util.UUID.randomUUID().toString(),
-    val song: Song
-)

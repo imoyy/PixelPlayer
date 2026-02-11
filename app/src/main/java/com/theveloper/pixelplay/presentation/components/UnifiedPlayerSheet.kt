@@ -436,7 +436,6 @@ fun UnifiedPlayerSheet(
         hasSelectedSongForInfo = selectedSongForInfo != null,
         showQueueSheet = showQueueSheet,
         queueHiddenOffsetPx = queueHiddenOffsetPx,
-        queueSheetOffset = queueSheetOffset,
         screenHeightPx = screenHeightPx,
         castSheetOpenFraction = castSheetState.castSheetOpenFraction
     )
