@@ -1900,7 +1900,7 @@ class PlayerViewModel @Inject constructor(
             // If shuffle is persistent and currently ON, we shuffle the new songs immediately
             val finalSongsToPlay = if (isPersistent && isShuffleOn) {
                 // Shuffle the list but make sure the song you clicked stays at its current index or starts first
-                QueueUtils.buildAnchoredShuffleQueue(validSongs, validSongs.indexOf(validStartSong).coerceAtLeast(0))
+                QueueUtils.buildAnchoredShuffleQueueSuspending(validSongs, validSongs.indexOf(validStartSong).coerceAtLeast(0))
             } else {
                 // Otherwise, just use the normal sequential order
                 validSongs
