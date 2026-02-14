@@ -211,23 +211,81 @@ class PlayerViewModel @Inject constructor(
      * Uses Paging 3 for memory-efficient loading of large libraries.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val paginatedSongs: Flow<PagingData<Song>> = libraryStateHolder.currentSongSortOption
-        .flatMapLatest { sortOption ->
-            musicRepository.getPaginatedSongs(sortOption)
-        }
+    val paginatedSongs: Flow<PagingData<Song>> = libraryStateHolder.songsPagingFlow
         .cachedIn(viewModelScope)
     
     // Observe embedded art updates for Telegram songs - refresh colors when available
     private val embeddedArtObserverJob = viewModelScope.launch {
-        telegramCacheManager.embeddedArtUpdated.collect { updatedArtUri ->
-            val currentSongArtUri = playbackStateHolder.stablePlayerState.value.currentSong?.albumArtUriString
-            if (currentSongArtUri == updatedArtUri) {
-                Timber.d("PlayerViewModel: Embedded art updated for current song, refreshing colors")
-                // Invalidate Coil cache for this URI
-                context.imageLoader.memoryCache?.remove(MemoryCache.Key(updatedArtUri))
-                context.imageLoader.diskCache?.remove(updatedArtUri)
-                // Re-extract colors
-                themeStateHolder.extractAndGenerateColorScheme(updatedArtUri.toUri(), updatedArtUri, isPreload = false)
+        launch {
+            telegramCacheManager.embeddedArtUpdated.collect { updatedArtUri ->
+                refreshArtwork(updatedArtUri)
+            }
+        }
+        
+        launch {
+            musicRepository.telegramRepository.downloadCompleted
+                .onEach { fileId: Int ->
+                    // Check if the downloaded file belongs to the current song
+                    val currentSong = playbackStateHolder.stablePlayerState.value.currentSong
+                    if (currentSong != null && currentSong.contentUriString.startsWith("telegram:")) {
+                        // Refresh art if the downloaded file is the audio file or the thumbnail
+                         val uri = Uri.parse(currentSong.contentUriString)
+                         val chatId = uri.host?.toLongOrNull()
+                         val messageId = uri.pathSegments.firstOrNull()?.toLongOrNull()
+                         
+                         if (chatId != null && messageId != null) {
+                             // Force a refresh attempt for this song
+                             // We construct the art URI manually since we know the pattern
+                             val artUri = "telegram_art://$chatId/$messageId"
+                             refreshArtwork(artUri)
+                         }
+                    }
+                }
+                .launchIn(this)
+        }
+
+    }
+
+    private suspend fun refreshArtwork(updatedArtUri: String) {
+        val currentState = playbackStateHolder.stablePlayerState.value
+        val currentSong = currentState.currentSong
+        // Check if it matches, ignoring query params for comparison
+        val currentUriClean = currentSong?.albumArtUriString?.substringBefore('?')
+        val updatedUriClean = updatedArtUri.substringBefore('?')
+        
+        if (currentUriClean == updatedUriClean) {
+            Timber.d("PlayerViewModel: Embedded art updated for current song, forcing refresh")
+            
+            // 1. Invalidate Coil cache for the BASE uri (without params)
+            // This ensures next time we load it without params, it's fresh too.
+            val baseUri = currentUriClean ?: updatedUriClean
+            
+            // Remove from Memory Cache
+            context.imageLoader.memoryCache?.keys?.forEach { key ->
+                if (key.toString().contains(baseUri)) {
+                    context.imageLoader.memoryCache?.remove(key)
+                }
+            }
+            // Remove from Disk Cache
+            context.imageLoader.diskCache?.remove(baseUri)
+
+            // 2. Extract Colors (using base URI)
+            themeStateHolder.extractAndGenerateColorScheme(updatedArtUri.toUri(), updatedArtUri, isPreload = false)
+            
+            // 3. FORCE UI REFRESH by updating the URI with a version timestamp
+            // This forces SmartImage to see a "new" model and reload.
+            // We keep the quality param if it exists, or add a version param.
+            val newUri = if (updatedArtUri.contains("?")) {
+                "$updatedArtUri&v=${System.currentTimeMillis()}"
+            } else {
+                "$updatedArtUri?v=${System.currentTimeMillis()}"
+            }
+            
+            val updatedSong = currentSong!!.copy(albumArtUriString = newUri)
+            
+            // Update State
+            playbackStateHolder.updateStablePlayerState { state ->
+                state.copy(currentSong = updatedSong)
             }
         }
     }
@@ -1191,6 +1249,11 @@ class PlayerViewModel @Inject constructor(
                 _playerUiState.update { it.copy(currentFavoriteSortOption = sort) }
             }
         }
+        viewModelScope.launch {
+            libraryStateHolder.currentStorageFilter.collect { filter ->
+                _playerUiState.update { it.copy(currentStorageFilter = filter) }
+            }
+        }
 
 
         castTransferStateHolder.initialize(
@@ -1295,6 +1358,20 @@ class PlayerViewModel @Inject constructor(
     fun loadAlbumsIfNeeded() = libraryStateHolder.loadAlbumsIfNeeded()
     fun loadArtistsIfNeeded() = libraryStateHolder.loadArtistsIfNeeded()
     fun loadFoldersFromRepository() = libraryStateHolder.loadFoldersFromRepository()
+
+    fun setStorageFilter(filter: com.theveloper.pixelplay.data.model.StorageFilter) {
+        libraryStateHolder.setStorageFilter(filter)
+    }
+
+    fun toggleStorageFilter() {
+        val current = _playerUiState.value.currentStorageFilter
+        val next = when (current) {
+            com.theveloper.pixelplay.data.model.StorageFilter.ALL -> com.theveloper.pixelplay.data.model.StorageFilter.ONLINE
+            com.theveloper.pixelplay.data.model.StorageFilter.ONLINE -> com.theveloper.pixelplay.data.model.StorageFilter.OFFLINE
+            com.theveloper.pixelplay.data.model.StorageFilter.OFFLINE -> com.theveloper.pixelplay.data.model.StorageFilter.ALL
+        }
+        setStorageFilter(next)
+    }
 
     fun showAndPlaySong(
         song: Song,

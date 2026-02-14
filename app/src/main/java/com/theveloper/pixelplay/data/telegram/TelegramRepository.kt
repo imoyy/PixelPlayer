@@ -11,6 +11,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.transform
@@ -29,6 +32,7 @@ class TelegramRepository @Inject constructor(
 ) {
 
     val authorizationState: Flow<TdApi.AuthorizationState?> = clientManager.authorizationState
+            
     /**
      * Clear memory caches in the repository.
      * For full cache clearing including files, use TelegramCacheManager.
@@ -333,6 +337,9 @@ class TelegramRepository @Inject constructor(
     // Reduced from 12 to 4 for thumbnails - higher values cause timeouts and frame drops
     private val downloadSemaphore = kotlinx.coroutines.sync.Semaphore(4)
 
+    private val _downloadCompleted = MutableSharedFlow<Int>(extraBufferCapacity = 16)
+    val downloadCompleted: SharedFlow<Int> = _downloadCompleted.asSharedFlow()
+
     suspend fun downloadFileAwait(fileId: Int, priority: Int = 1): String? {
         // 1. Check Memory Cache first
         resolvedPathCache[fileId]?.let { path ->
@@ -355,6 +362,7 @@ class TelegramRepository @Inject constructor(
                     if (currentFile?.local?.isDownloadingCompleted == true) {
                         currentFile.local.path.takeIf { it.isNotEmpty() }?.let {
                              resolvedPathCache[fileId] = it
+                             _downloadCompleted.tryEmit(fileId) // Notify
                              return@withPermit it
                         }
                     }
@@ -374,6 +382,7 @@ class TelegramRepository @Inject constructor(
                             
                             if (resultFile.local.isDownloadingCompleted && resultFile.local.path.isNotEmpty()) {
                                 resolvedPathCache[fileId] = resultFile.local.path
+                                _downloadCompleted.tryEmit(fileId) // Notify
                                 resultFile.local.path
                             } else {
                                 null
@@ -417,12 +426,14 @@ class TelegramRepository @Inject constructor(
                     
                     if (completedPath != null) {
                         resolvedPathCache[fileId] = completedPath
+                        _downloadCompleted.tryEmit(fileId) // Notify
                         return@withPermit completedPath
                     }
                     
                     // Final check
                     val finalFile = getFile(fileId)
                     return@withPermit if (finalFile?.local?.isDownloadingCompleted == true && finalFile.local.path.isNotEmpty()) {
+                        _downloadCompleted.tryEmit(fileId) // Notify
                         finalFile.local.path
                     } else {
                         null

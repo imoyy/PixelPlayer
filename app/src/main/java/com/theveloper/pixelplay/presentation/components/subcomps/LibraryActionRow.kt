@@ -38,6 +38,9 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.ViewList
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -90,7 +93,11 @@ fun LibraryActionRow(
     folderRootLabel: String,
     onFolderClick: (String) -> Unit,
     onNavigateBack: () -> Unit,
-    isShuffleEnabled: Boolean = false
+    isShuffleEnabled: Boolean = false,
+    // Storage Filter
+    showStorageFilterButton: Boolean = false,
+    currentStorageFilter: com.theveloper.pixelplay.data.model.StorageFilter = com.theveloper.pixelplay.data.model.StorageFilter.ALL,
+    onStorageFilterClick: () -> Unit = {}
 ) {
     Row(
         modifier = modifier
@@ -252,16 +259,43 @@ fun LibraryActionRow(
 
         if (showSortButton) {
             val outerCorner = 26.dp
-            val innerCorner by animateDpAsState(
-                targetValue = if (showLocateButton) 8.dp else outerCorner,
-                label = "SortButtonsInnerCorner"
-            )
-            val actionButtonsGap by animateDpAsState(
-                targetValue = if (showLocateButton) 4.dp else 0.dp,
-                label = "SortButtonsGap"
+            
+            // Logic for Sort Button (Rightmost)
+            val sortStartCorner by animateDpAsState(
+                targetValue = if (showLocateButton || showStorageFilterButton) 8.dp else outerCorner,
+                label = "SortStartCorner"
             )
 
+            // Logic for Filter Button (Middle or Left if Locate hidden)
+            // Filter is visible if showStorageFilterButton is true
+            val filterEndCorner = 8.dp // Connected to Sort
+            val filterStartCorner by animateDpAsState(
+                targetValue = if (showLocateButton) 8.dp else outerCorner,
+                label = "FilterStartCorner"
+            )
+            
+            // Logic for Locate Button (Leftmost)
+            val locateEndCorner = 8.dp // Connected to Filer or Sort
+
+            // Gaps
+            // If Filter is shown, gap is between Filter and Sort? OR if we use connected buttons, gap is 4dp between groups or 0dp between connected?
+            // Existing code used 4dp gap and 8dp corner. 
+            // "SortButtonsGap" was 4dp if showLocateButton else 0dp.
+            // If we want "connected" look (segmented), gap should be small (1dp or 2dp) or 0.
+            // But existing code uses `4.dp`.
+            
+            val gapBetweenLocateAndNext by animateDpAsState(
+                targetValue = if (showLocateButton) 4.dp else 0.dp,
+                label = "GapLocate"
+            )
+            val gapBetweenFilterAndSort by animateDpAsState(
+                targetValue = if (showStorageFilterButton) 4.dp else 0.dp,
+                label = "GapFilter"
+            )
+
+
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Locate Button
                 AnimatedVisibility(
                     visible = showLocateButton,
                     enter = slideInHorizontally(initialOffsetX = { it / 2 }) + fadeIn(),
@@ -272,8 +306,8 @@ fun LibraryActionRow(
                         shape = RoundedCornerShape(
                             topStart = outerCorner,
                             bottomStart = outerCorner,
-                            topEnd = innerCorner,
-                            bottomEnd = innerCorner
+                            topEnd = locateEndCorner,
+                            bottomEnd = locateEndCorner
                         ),
                         modifier = Modifier.size(genHeight)
                     ) {
@@ -283,14 +317,46 @@ fun LibraryActionRow(
                         )
                     }
                 }
+                
+                Spacer(modifier = Modifier.width(gapBetweenLocateAndNext))
 
-                Spacer(modifier = Modifier.width(actionButtonsGap))
+                // Storage Filter Button
+                AnimatedVisibility(
+                    visible = showStorageFilterButton,
+                    enter = slideInHorizontally(initialOffsetX = { it / 2 }) + fadeIn(),
+                    exit = slideOutHorizontally(targetOffsetX = { it / 2 }) + fadeOut()
+                ) {
+                     val finalIcon = when(currentStorageFilter) {
+                         com.theveloper.pixelplay.data.model.StorageFilter.ALL -> Icons.Rounded.ViewList
+                         com.theveloper.pixelplay.data.model.StorageFilter.ONLINE -> Icons.Rounded.Cloud
+                         com.theveloper.pixelplay.data.model.StorageFilter.OFFLINE -> Icons.Rounded.Edit // TODO: Replace with proper offline icon
+                     }
 
+                    FilledTonalIconButton(
+                        onClick = onStorageFilterClick,
+                        shape = RoundedCornerShape(
+                            topStart = filterStartCorner,
+                            bottomStart = filterStartCorner,
+                            topEnd = filterEndCorner,
+                            bottomEnd = filterEndCorner
+                        ),
+                        modifier = Modifier.size(genHeight)
+                    ) {
+                         Icon(
+                            imageVector = finalIcon,
+                            contentDescription = "Storage Filter"
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(gapBetweenFilterAndSort))
+
+                // Sort Button
                 FilledTonalIconButton(
                     onClick = onSortClick,
                     shape = RoundedCornerShape(
-                        topStart = innerCorner,
-                        bottomStart = innerCorner,
+                        topStart = sortStartCorner,
+                        bottomStart = sortStartCorner,
                         topEnd = outerCorner,
                         bottomEnd = outerCorner
                     ),

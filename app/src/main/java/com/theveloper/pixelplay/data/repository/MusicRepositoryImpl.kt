@@ -83,7 +83,7 @@ class MusicRepositoryImpl @Inject constructor(
     private val lyricsRepository: LyricsRepository,
     private val telegramDao: TelegramDao,
     private val telegramCacheManager: com.theveloper.pixelplay.data.telegram.TelegramCacheManager,
-    private val telegramRepository: com.theveloper.pixelplay.data.telegram.TelegramRepository,
+    override val telegramRepository: com.theveloper.pixelplay.data.telegram.TelegramRepository,
     private val songRepository: SongRepository,
     private val favoritesDao: FavoritesDao,
     private val artistImageRepository: ArtistImageRepository,
@@ -142,8 +142,8 @@ class MusicRepositoryImpl @Inject constructor(
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun getPaginatedSongs(sortOption: SortOption): Flow<PagingData<Song>> {
-        return songRepository.getPaginatedSongs(sortOption)
+    override fun getPaginatedSongs(sortOption: SortOption, storageFilter: com.theveloper.pixelplay.data.model.StorageFilter): Flow<PagingData<Song>> {
+        return songRepository.getPaginatedSongs(sortOption, storageFilter)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
