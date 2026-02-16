@@ -205,6 +205,8 @@ import kotlin.math.abs
 
 val ListExtraBottomGap = 30.dp
 val PlayerSheetCollapsedCornerRadius = 32.dp
+private const val ENABLE_FOLDERS_SOURCE_TOGGLE = false
+private const val ENABLE_FOLDERS_STORAGE_FILTER = false
 
 @RequiresApi(Build.VERSION_CODES.R)
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -734,7 +736,10 @@ fun LibraryScreen(
                                     onFolderClick = { playerViewModel.navigateToFolder(it) },
                                     onNavigateBack = { playerViewModel.navigateBackFolder() },
                                     isShuffleEnabled = stablePlayerState.isShuffleEnabled,
-                                    showStorageFilterButton = currentTabId == LibraryTabId.SONGS || currentTabId == LibraryTabId.ALBUMS,
+                                    showStorageFilterButton = currentTabId == LibraryTabId.SONGS ||
+                                        currentTabId == LibraryTabId.ALBUMS ||
+                                        currentTabId == LibraryTabId.ARTISTS ||
+                                        (ENABLE_FOLDERS_STORAGE_FILTER && currentTabId == LibraryTabId.FOLDERS),
                                     currentStorageFilter = playerUiState.currentStorageFilter,
                                     onStorageFilterClick = { playerViewModel.toggleStorageFilter() }
                                 )
@@ -811,7 +816,7 @@ fun LibraryScreen(
                                         }
                                     }
                                 } else null,
-                                sourceToggleContent = if (isFoldersTab) {
+                                sourceToggleContent = if (isFoldersTab && ENABLE_FOLDERS_SOURCE_TOGGLE) {
                                     {
                                         Row(
                                             modifier = Modifier.fillMaxWidth().height(48.dp),

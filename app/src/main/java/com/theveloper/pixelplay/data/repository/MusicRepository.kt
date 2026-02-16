@@ -67,7 +67,9 @@ interface MusicRepository {
      * Obtiene la lista de artistas filtrada.
      * @return Flow que emite una lista completa de objetos Artist.
      */
-    fun getArtists(): Flow<List<Artist>> // Existing Flow for reactive updates
+    fun getArtists(
+        storageFilter: com.theveloper.pixelplay.data.model.StorageFilter = com.theveloper.pixelplay.data.model.StorageFilter.ALL
+    ): Flow<List<Artist>> // Existing Flow for reactive updates
 
     /**
      * Obtiene la lista completa de canciones una sola vez.
@@ -221,7 +223,9 @@ interface MusicRepository {
 
     suspend fun resetAllLyrics()
 
-    fun getMusicFolders(): Flow<List<com.theveloper.pixelplay.data.model.MusicFolder>>
+    fun getMusicFolders(
+        storageFilter: com.theveloper.pixelplay.data.model.StorageFilter = com.theveloper.pixelplay.data.model.StorageFilter.ALL
+    ): Flow<List<com.theveloper.pixelplay.data.model.MusicFolder>>
 
     suspend fun deleteById(id: Long)
     suspend fun saveTelegramSongs(songs: List<Song>)

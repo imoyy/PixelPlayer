@@ -119,6 +119,7 @@ import coil.imageLoader
 import coil.memory.MemoryCache
 
 private const val CAST_LOG_TAG = "PlayerCastTransfer"
+private const val ENABLE_FOLDERS_SOURCE_SWITCHING = false
 
 data class PlaybackAudioMetadata(
     val mediaId: String? = null,
@@ -924,7 +925,9 @@ class PlayerViewModel @Inject constructor(
             ?.path
             ?.path
 
-        val effectiveSource = if (preferredSource == FolderSource.SD_CARD && sdPath == null) {
+        val effectiveSource = if (!ENABLE_FOLDERS_SOURCE_SWITCHING) {
+            FolderSource.INTERNAL
+        } else if (preferredSource == FolderSource.SD_CARD && sdPath == null) {
             FolderSource.INTERNAL
         } else {
             preferredSource
@@ -3010,6 +3013,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setFoldersSource(source: FolderSource) {
+        if (!ENABLE_FOLDERS_SOURCE_SWITCHING) return
         viewModelScope.launch {
             userPreferencesRepository.setFoldersSource(source)
         }

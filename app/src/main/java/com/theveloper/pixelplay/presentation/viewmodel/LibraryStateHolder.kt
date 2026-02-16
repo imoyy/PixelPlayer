@@ -29,6 +29,8 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val ENABLE_FOLDERS_STORAGE_FILTER = false
+
 /**
  * Manages the data state of the music library: Songs, Albums, Artists, Folders.
  * Handles loading from Repository and applying SortOptions.
@@ -65,6 +67,16 @@ class LibraryStateHolder @Inject constructor(
     // Filter Options
     private val _currentStorageFilter = MutableStateFlow(com.theveloper.pixelplay.data.model.StorageFilter.ALL)
     val currentStorageFilter = _currentStorageFilter.asStateFlow()
+
+    private fun effectiveFoldersStorageFilter(
+        selectedFilter: com.theveloper.pixelplay.data.model.StorageFilter
+    ): com.theveloper.pixelplay.data.model.StorageFilter {
+        return if (ENABLE_FOLDERS_STORAGE_FILTER) {
+            selectedFilter
+        } else {
+            com.theveloper.pixelplay.data.model.StorageFilter.OFFLINE
+        }
+    }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val songsPagingFlow: kotlinx.coroutines.flow.Flow<androidx.paging.PagingData<Song>> = 
@@ -215,7 +227,10 @@ class LibraryStateHolder @Inject constructor(
 
         artistsJob = scope?.launch {
             _isLoadingCategories.value = true
-            musicRepository.getArtists().collect { artists ->
+            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+            _currentStorageFilter.flatMapLatest { filter ->
+                musicRepository.getArtists(filter)
+            }.collect { artists ->
                 _artists.value = artists.toImmutableList()
                 sortArtists(_currentArtistSortOption.value, persist = false)
                 _isLoadingCategories.value = false
@@ -223,7 +238,10 @@ class LibraryStateHolder @Inject constructor(
         }
 
         foldersJob = scope?.launch {
-            musicRepository.getMusicFolders().collect { folders ->
+            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+            _currentStorageFilter.flatMapLatest { filter ->
+                musicRepository.getMusicFolders(effectiveFoldersStorageFilter(filter))
+            }.collect { folders ->
                 _musicFolders.value = folders.toImmutableList()
                 sortFolders(_currentFolderSortOption.value, persist = false)
             }

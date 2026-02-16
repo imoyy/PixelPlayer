@@ -102,6 +102,13 @@ interface MusicDao {
     @Query("SELECT id FROM songs")
     suspend fun getAllSongIds(): List<Long>
 
+    @Query("""
+        SELECT id FROM songs
+        WHERE content_uri_string NOT LIKE 'telegram://%'
+        AND content_uri_string NOT LIKE 'netease://%'
+    """)
+    suspend fun getAllMediaStoreSongIds(): List<Long>
+
     @Query("DELETE FROM songs WHERE id IN (:songIds)")
     suspend fun deleteSongsByIds(songIds: List<Long>)
 
@@ -777,16 +784,47 @@ interface MusicDao {
                (SELECT COUNT(*) FROM song_artist_cross_ref 
                 INNER JOIN songs ON song_artist_cross_ref.song_id = songs.id
                 WHERE song_artist_cross_ref.artist_id = artists.id
-                AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))) AS track_count
+                AND (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
+                AND (
+                    :filterMode = 0
+                    OR (
+                        :filterMode = 1
+                        AND songs.content_uri_string NOT LIKE 'telegram://%'
+                        AND songs.content_uri_string NOT LIKE 'netease://%'
+                    )
+                    OR (
+                        :filterMode = 2
+                        AND (
+                            songs.content_uri_string LIKE 'telegram://%'
+                            OR songs.content_uri_string LIKE 'netease://%'
+                        )
+                    )
+                )) AS track_count
         FROM artists
         INNER JOIN song_artist_cross_ref ON artists.id = song_artist_cross_ref.artist_id
         INNER JOIN songs ON song_artist_cross_ref.song_id = songs.id
         WHERE (:applyDirectoryFilter = 0 OR songs.id < 0 OR songs.parent_directory_path IN (:allowedParentDirs))
+        AND (
+            :filterMode = 0
+            OR (
+                :filterMode = 1
+                AND songs.content_uri_string NOT LIKE 'telegram://%'
+                AND songs.content_uri_string NOT LIKE 'netease://%'
+            )
+            OR (
+                :filterMode = 2
+                AND (
+                    songs.content_uri_string LIKE 'telegram://%'
+                    OR songs.content_uri_string LIKE 'netease://%'
+                )
+            )
+        )
         ORDER BY artists.name ASC
     """)
     fun getArtistsWithSongCountsFiltered(
         allowedParentDirs: List<String>,
-        applyDirectoryFilter: Boolean
+        applyDirectoryFilter: Boolean,
+        filterMode: Int
     ): Flow<List<ArtistEntity>>
 
     /**

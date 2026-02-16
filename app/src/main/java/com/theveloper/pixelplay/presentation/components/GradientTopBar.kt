@@ -170,7 +170,7 @@ fun HomeGradientTopBar(
         actions = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                //horizontalArrangement = Arrangement.spacedBy(2.dp),
                 modifier = Modifier.padding(end = 14.dp)
             ) {
                 FilledIconButton(

@@ -121,10 +121,8 @@ constructor(
                     // Detect and remove deleted songs efficiently using ID comparison
                     // We do this for INCREMENTAL and FULL modes. REBUILD clears everything anyway.
                     if (syncMode != SyncMode.REBUILD) {
-                        // Keep cloud songs (negative IDs) out of MediaStore deletion checks.
-                        val localSongIds = musicDao.getAllSongIds().asSequence()
-                            .filter { it > 0L }
-                            .toHashSet()
+                        // Only compare MediaStore-backed songs; cloud sources are excluded.
+                        val localSongIds = musicDao.getAllMediaStoreSongIds().toHashSet()
                         val mediaStoreIds = fetchMediaStoreIds(directoryResolver)
 
                         // Identify IDs that are in local DB but not in MediaStore
@@ -394,7 +392,7 @@ constructor(
                         // Sync cloud songs (Telegram + Netease)
                         syncTelegramData()
                         syncNeteaseData()
-                        
+
                         // Recalculate total after cloud sync
                         val finalTotalSongs = musicDao.getSongCount().first()
 
@@ -432,7 +430,7 @@ constructor(
                         // Sync cloud songs (Telegram + Netease)
                         syncTelegramData()
                         syncNeteaseData()
-                        
+
                         // Recalculate total after cloud sync
                         val finalTotalSongs = musicDao.getSongCount().first()
 
@@ -1304,7 +1302,7 @@ constructor(
         private const val NETEASE_ARTIST_ID_OFFSET = 5_000_000_000_000L
         private const val NETEASE_PARENT_DIRECTORY = "/Cloud/Netease"
         private const val NETEASE_GENRE = "Netease Cloud"
-        
+
         // Genre cache - shared across worker instances to avoid refetching on incremental syncs
         private const val GENRE_CACHE_TTL_MS = 60 * 60 * 1000L // 1 hour
         @Volatile private var genreMapCache: Map<Long, String> = emptyMap()
