@@ -540,6 +540,7 @@ fun LyricsSheet(
                                 highlightOffsetDp = highlightOffsetDp,
                                 autoscrollAnimationSpec = resolvedAutoscrollSpec,
                                 useAnimatedLyrics = useAnimatedLyrics,
+                                immersiveMode = immersiveMode,
                                 footer = {
                                     if (lyrics?.areFromRemote == true) {
                                         item(key = "provider_text") {
@@ -871,6 +872,7 @@ fun SyncedLyricsList(
     highlightOffsetDp: Dp,
     autoscrollAnimationSpec: AnimationSpec<Float>,
     useAnimatedLyrics: Boolean = false,
+    immersiveMode: Boolean = false,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     footer: LazyListScope.() -> Unit = {}
@@ -937,6 +939,7 @@ fun SyncedLyricsList(
                             position = position,
                             distanceFromCurrent = distanceFromCurrent,
                             useAnimatedLyrics = useAnimatedLyrics,
+                            immersiveMode = immersiveMode,
                             accentColor = accentColor,
                             style = textStyle,
                             modifier = Modifier
@@ -955,7 +958,7 @@ fun SyncedLyricsList(
                                 .padding(vertical = 8.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
+// 16 dp Spacer removed to allow dynamic padding in LyricLineRow
                 }
                 footer()
             }
@@ -984,6 +987,7 @@ fun LyricLineRow(
     position: Long,
     distanceFromCurrent: Int = 100,
     useAnimatedLyrics: Boolean = false,
+    immersiveMode: Boolean = false,
     accentColor: Color,
     style: TextStyle,
     modifier: Modifier = Modifier,
@@ -1008,11 +1012,11 @@ fun LyricLineRow(
 
     // Animated mode: fisheye scaling + alpha based on distance from current line
     val targetScale = if (useAnimatedLyrics) when (distanceFromCurrent) {
-        0 -> 1.1f; 1 -> 0.95f; else -> 0.85f
+        0 -> if (immersiveMode) 1.02f else 1.1f; 1 -> 0.95f; else -> 0.85f
     } else 1f
     val targetPadding = if (useAnimatedLyrics) when (distanceFromCurrent) {
-        0 -> 24.dp; 1 -> 12.dp; else -> 6.dp
-    } else 4.dp
+        0 -> 32.dp; 1 -> 16.dp; else -> 8.dp
+    } else 12.dp
     val targetAlpha = if (useAnimatedLyrics) when (distanceFromCurrent) {
         0 -> 1.0f; 1 -> 0.6f; else -> 0.3f
     } else 1f
