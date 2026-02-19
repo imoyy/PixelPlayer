@@ -99,7 +99,7 @@ fun StreamingProviderSheet(
                 subtitle = "Stream from channels & chats",
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                iconColor = MaterialTheme.colorScheme.onPrimary,
+                iconColor = MaterialTheme.colorScheme.primaryContainer,
                 shape = cardShape,
                 onClick = {
                     context.startActivity(Intent(context, TelegramLoginActivity::class.java))
@@ -135,8 +135,8 @@ fun StreamingProviderSheet(
                 else
                     "网易云音乐 – Sign in to stream",
                 containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.tertiary,
-                iconColor = MaterialTheme.colorScheme.onTertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                iconColor = MaterialTheme.colorScheme.tertiaryContainer,
                 shape = cardShape,
                 onClick = {
                     if (isNeteaseLoggedIn) {
