@@ -115,17 +115,6 @@
             android:resource="@xml/automotive_app_desc" />
 
         <receiver
-            android:name=".ui.glancewidget.PixelPlayGlanceWidgetReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/pixelplay_glance_widget_info" />
-        </receiver>
-
-        <receiver
             android:name=".ui.glancewidget.BarWidget4x1Receiver"
             android:exported="false">
             <intent-filter>
@@ -133,7 +122,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/bar_widget_4x1" />
+                android:resource="@xml/bar_widget_4x1_info" />
         </receiver>
 
         <receiver
@@ -144,7 +133,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/control_widget_4x2" />
+                android:resource="@xml/control_widget_4x2_info" />
         </receiver>
 
         <receiver
@@ -155,7 +144,7 @@
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/grid_widget_2x2" />
+                android:resource="@xml/grid_widget_2x2_info" />
         </receiver>
 
         <receiver android:name=".data.service.SleepTimerReceiver" android:exported="false" />
