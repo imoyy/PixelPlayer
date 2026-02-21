@@ -51,7 +51,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.ByteArrayOutputStream
@@ -407,7 +406,7 @@ class MusicService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = mediaSession?.player
-        val allowBackground = runBlocking { userPreferencesRepository.keepPlayingInBackgroundFlow.first() }
+        val allowBackground = keepPlayingInBackground
 
         if (!allowBackground) {
             player?.apply {
