@@ -1802,10 +1802,27 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun resolveSongFromMediaItem(mediaItem: MediaItem): Song? {
-        _playerUiState.value.currentPlaybackQueue.find { it.id == mediaItem.mediaId }?.let { return it }
-        libraryStateHolder.allSongs.value.find { it.id == mediaItem.mediaId }?.let { return it }
+        val resolvedSong =
+            libraryStateHolder.allSongs.value.find { it.id == mediaItem.mediaId }
+                ?: _playerUiState.value.currentPlaybackQueue.find { it.id == mediaItem.mediaId }
+                ?: mediaMapper.resolveSongFromMediaItem(mediaItem)
 
-        return mediaMapper.resolveSongFromMediaItem(mediaItem)
+        return resolvedSong?.let { normalizeArtworkForResolvedSong(it, mediaItem) }
+    }
+
+    private fun normalizeArtworkForResolvedSong(song: Song, mediaItem: MediaItem): Song {
+        val metadataArtwork =
+            mediaItem.mediaMetadata.artworkUri?.toString()?.takeIf { it.isNotBlank() }
+                ?: mediaItem.mediaMetadata.extras
+                    ?.getString(MediaItemBuilder.EXTERNAL_EXTRA_ALBUM_ART)
+                    ?.takeIf { it.isNotBlank() }
+
+        return when {
+            metadataArtwork == null && song.albumArtUriString != null -> song.copy(albumArtUriString = null)
+            metadataArtwork != null && song.albumArtUriString != metadataArtwork ->
+                song.copy(albumArtUriString = metadataArtwork)
+            else -> song
+        }
     }
 
     private fun updateCurrentPlaybackQueueFromPlayer(playerCtrl: MediaController?) {

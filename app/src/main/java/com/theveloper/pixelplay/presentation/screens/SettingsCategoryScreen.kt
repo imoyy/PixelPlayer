@@ -676,7 +676,7 @@ fun SettingsCategoryScreen(
                                     SliderSettingsItem(
                                         label = "Crossfade Duration",
                                         value = uiState.crossfadeDuration.toFloat(),
-                                        valueRange = 2000f..12000f,
+                                        valueRange = 1000f..12000f,
                                         onValueChange = { settingsViewModel.setCrossfadeDuration(it.toInt()) },
                                         valueText = { value -> "${(value / 1000).toInt()}s" }
                                     )
