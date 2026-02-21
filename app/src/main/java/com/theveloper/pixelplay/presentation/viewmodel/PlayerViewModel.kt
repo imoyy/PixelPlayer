@@ -178,18 +178,7 @@ class PlayerViewModel @Inject constructor(
      * High-frequency playback position should not force global UI recomposition.
      * Keep a dedicated position flow for real-time UI elements (seek bars, lyrics timing).
      */
-    val currentPlaybackPosition: StateFlow<Long> = stablePlayerState
-        .map { it.currentPosition }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
-
-    /**
-     * Infrequent player state for large screen trees that only need structural playback changes.
-     */
-    val stablePlayerStateInfrequent: StateFlow<StablePlayerState> = stablePlayerState
-        .map { it.copy(currentPosition = 0L) }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StablePlayerState())
+    val currentPlaybackPosition: StateFlow<Long> = playbackStateHolder.currentPosition
     val playbackHistory = listeningStatsTracker.playbackHistory
 
     // Removed: _masterAllSongs was a duplicate of libraryStateHolder.allSongs
@@ -2031,6 +2020,7 @@ class PlayerViewModel @Inject constructor(
                         totalDuration = resolvedDuration
                     )
                 }
+                playbackStateHolder.setCurrentPosition(initialPosition)
                 _playerUiState.update { it.copy(currentPosition = initialPosition) }
                 viewModelScope.launch {
                     val uri = song.albumArtUriString?.toUri()
@@ -2055,6 +2045,7 @@ class PlayerViewModel @Inject constructor(
                         playWhenReady = false
                     )
                 }
+                playbackStateHolder.setCurrentPosition(0L)
                 _playerUiState.update { it.copy(currentPosition = 0L) }
                 resetPlaybackAudioMetadata()
             }
@@ -2084,6 +2075,7 @@ class PlayerViewModel @Inject constructor(
                 } else {
                     stopProgressUpdates()
                     val pausedPosition = playerCtrl.currentPosition.coerceAtLeast(0L)
+                    playbackStateHolder.setCurrentPosition(pausedPosition)
                     if (pausedPosition != _playerUiState.value.currentPosition) {
                         _playerUiState.update { it.copy(currentPosition = pausedPosition) }
                     }
@@ -2157,6 +2149,7 @@ class PlayerViewModel @Inject constructor(
                                 playWhenReady = playerCtrl.playWhenReady
                             )
                         }
+                        playbackStateHolder.setCurrentPosition(0L)
                         _playerUiState.update { it.copy(currentPosition = 0L) }
 
                         song?.let { currentSongValue ->
@@ -2225,6 +2218,7 @@ class PlayerViewModel @Inject constructor(
                                 totalDuration = 0L
                             )
                         }
+                        playbackStateHolder.setCurrentPosition(0L)
                         _playerUiState.update { it.copy(currentPosition = 0L) }
                         resetPlaybackAudioMetadata()
                     }
@@ -2382,6 +2376,7 @@ class PlayerViewModel @Inject constructor(
                     dismissedPosition = 0L
                 )
             }
+            playbackStateHolder.setCurrentPosition(0L)
 
             playbackStateHolder.updateStablePlayerState { state ->
                 state.copy(
@@ -2500,6 +2495,13 @@ class PlayerViewModel @Inject constructor(
                 )
             }
             _isSheetVisible.value = true
+
+            // Pre-resolve the starting song's cloud URI before ExoPlayer touches it.
+            // This populates the resolvedUriCache so resolveDataSpec finds it instantly.
+            val startingUri = effectiveStartSong.contentUriString.toUri()
+            if (startingUri.scheme == "telegram" || startingUri.scheme == "netease") {
+                dualPlayerEngine.resolveCloudUri(startingUri)
+            }
 
             val playSongsAction = {
                 // Use Direct Engine Access to avoid TransactionTooLargeException on Binder
@@ -2948,6 +2950,7 @@ class PlayerViewModel @Inject constructor(
 
     suspend fun removeSong(song: Song) {
         toggleFavoriteSpecificSong(song, true)
+        playbackStateHolder.setCurrentPosition(0L)
         _playerUiState.update { currentState ->
             currentState.copy(
                 currentPosition = 0L,
@@ -3458,7 +3461,7 @@ class PlayerViewModel @Inject constructor(
             val songToDismiss = playbackStateHolder.stablePlayerState.value.currentSong
             val queueToDismiss = _playerUiState.value.currentPlaybackQueue
             val queueNameToDismiss = _playerUiState.value.currentQueueSourceName
-            val positionToDismiss = playbackStateHolder.stablePlayerState.value.currentPosition
+            val positionToDismiss = playbackStateHolder.currentPosition.value
 
             if (songToDismiss == null && queueToDismiss.isEmpty()) {
                 // Nothing to dismiss
@@ -3509,6 +3512,7 @@ class PlayerViewModel @Inject constructor(
                     currentQueueSourceName = ""
                 )
             }
+            playbackStateHolder.setCurrentPosition(0L)
             _isSheetVisible.value = false // Hide the player sheet
 
             // Launch timer to hide the undo bar
