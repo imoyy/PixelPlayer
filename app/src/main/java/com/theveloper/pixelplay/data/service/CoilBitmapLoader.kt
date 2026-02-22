@@ -34,6 +34,7 @@ class CoilBitmapLoader(private val context: Context) : BitmapLoader {
             try {
                 val request = ImageRequest.Builder(context)
                     .data(data)
+                    .size(256, 256)
                     .allowHardware(false) // Bitmap must not be hardware for MediaSession
                     .build()
                 
