@@ -34,6 +34,11 @@ android {
         versionName = project.findProperty("APP_VERSION_NAME") as String
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // Only include 64-bit ABIs to reduce APK size
+            abiFilters += setOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -160,7 +165,7 @@ dependencies {
     ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.room.paging)
-    
+
     // Paging 3
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
@@ -318,4 +323,3 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
-
