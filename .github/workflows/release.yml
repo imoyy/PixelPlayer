@@ -55,5 +55,5 @@ jobs:
           name: PixelPlayer v${{ steps.version.outputs.version_name }}
           body: |
             Release build from commit ${{ github.sha }}
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/release/PixelPlayer-${{ steps.version.outputs.version_name }}-arm64.apk
           make_latest: true
