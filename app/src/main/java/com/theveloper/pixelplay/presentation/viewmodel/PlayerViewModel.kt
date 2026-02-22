@@ -84,6 +84,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -133,6 +134,21 @@ data class PlaybackAudioMetadata(
     val bitDepth: Int? = null
 )
 
+private data class SortOptionsSnapshot(
+    val songSort: SortOption,
+    val albumSort: SortOption,
+    val artistSort: SortOption,
+    val folderSort: SortOption,
+    val favoriteSort: SortOption,
+)
+
+private data class AiUiSnapshot(
+    val showAiPlaylistSheet: Boolean,
+    val isGeneratingAiPlaylist: Boolean,
+    val aiError: String?,
+    val isGeneratingAiMetadata: Boolean,
+)
+
 @UnstableApi
 @SuppressLint("LogNotTimber")
 @OptIn(coil.annotation.ExperimentalCoilApi::class)
@@ -171,7 +187,10 @@ class PlayerViewModel @Inject constructor(
     private val _playerUiState = MutableStateFlow(PlayerUiState())
     val playerUiState: StateFlow<PlayerUiState> = _playerUiState.asStateFlow()
     
-    private val _showNoInternetDialog = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    private val _showNoInternetDialog = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val showNoInternetDialog: SharedFlow<Unit> = _showNoInternetDialog.asSharedFlow()
 
     val stablePlayerState: StateFlow<StablePlayerState> = playbackStateHolder.stablePlayerState
@@ -472,7 +491,10 @@ class PlayerViewModel @Inject constructor(
 
 
     // Toast Events
-    private val _toastEvents = MutableSharedFlow<String>()
+    private val _toastEvents = MutableSharedFlow<String>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val toastEvents = _toastEvents.asSharedFlow()
 
     private val _artistNavigationRequests = MutableSharedFlow<Long>(extraBufferCapacity = 1)
@@ -1077,14 +1099,18 @@ class PlayerViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            userPreferencesRepository.folderBackGestureNavigationFlow.collect { enabled ->
-                _playerUiState.update { it.copy(folderBackGestureNavigationEnabled = enabled) }
-            }
-        }
-
-        viewModelScope.launch {
-            userPreferencesRepository.isAlbumsListViewFlow.collect { isList ->
-                _playerUiState.update { it.copy(isAlbumsListView = isList) }
+            combine(
+                userPreferencesRepository.folderBackGestureNavigationFlow,
+                userPreferencesRepository.isAlbumsListViewFlow,
+            ) { gestureNav, albumsList ->
+                Pair(gestureNav, albumsList)
+            }.collect { (gestureNav, albumsList) ->
+                _playerUiState.update {
+                    it.copy(
+                        folderBackGestureNavigationEnabled = gestureNav,
+                        isAlbumsListView = albumsList,
+                    )
+                }
             }
         }
 
@@ -1252,18 +1278,20 @@ class PlayerViewModel @Inject constructor(
 
         // Collect SearchStateHolder flows
         viewModelScope.launch {
-            searchStateHolder.searchResults.collect { results ->
-                _playerUiState.update { it.copy(searchResults = results) }
-            }
-        }
-        viewModelScope.launch {
-            searchStateHolder.selectedSearchFilter.collect { filter ->
-                _playerUiState.update { it.copy(selectedSearchFilter = filter) }
-            }
-        }
-        viewModelScope.launch {
-            searchStateHolder.searchHistory.collect { history ->
-                _playerUiState.update { it.copy(searchHistory = history) }
+            combine(
+                searchStateHolder.searchResults,
+                searchStateHolder.selectedSearchFilter,
+                searchStateHolder.searchHistory,
+            ) { results, filter, history ->
+                Triple(results, filter, history)
+            }.collect { (results, filter, history) ->
+                _playerUiState.update {
+                    it.copy(
+                        searchResults = results,
+                        selectedSearchFilter = filter,
+                        searchHistory = history,
+                    )
+                }
             }
         }
 
@@ -1279,92 +1307,70 @@ class PlayerViewModel @Inject constructor(
 
         // Collect AiStateHolder flows
         viewModelScope.launch {
-            aiStateHolder.showAiPlaylistSheet.collect { show ->
-                _showAiPlaylistSheet.value = show
-            }
-        }
-        viewModelScope.launch {
-            aiStateHolder.isGeneratingAiPlaylist.collect { generating ->
-                _isGeneratingAiPlaylist.value = generating
-            }
-        }
-        viewModelScope.launch {
-            aiStateHolder.aiError.collect { error ->
-                _aiError.value = error
-            }
-        }
-        viewModelScope.launch {
-            aiStateHolder.isGeneratingMetadata.collect { generating ->
-                _playerUiState.update { it.copy(isGeneratingAiMetadata = generating) }
-            }
-        }
-
-        viewModelScope.launch {
-            aiStateHolder.isGeneratingMetadata.collect { generating ->
-                _playerUiState.update { it.copy(isGeneratingAiMetadata = generating) }
+            combine(
+                aiStateHolder.showAiPlaylistSheet,
+                aiStateHolder.isGeneratingAiPlaylist,
+                aiStateHolder.aiError,
+                aiStateHolder.isGeneratingMetadata,
+            ) { show, generating, error, generatingMetadata ->
+                AiUiSnapshot(
+                    showAiPlaylistSheet = show,
+                    isGeneratingAiPlaylist = generating,
+                    aiError = error,
+                    isGeneratingAiMetadata = generatingMetadata
+                )
+            }.collect { snapshot ->
+                _showAiPlaylistSheet.value = snapshot.showAiPlaylistSheet
+                _isGeneratingAiPlaylist.value = snapshot.isGeneratingAiPlaylist
+                _aiError.value = snapshot.aiError
+                _playerUiState.update {
+                    it.copy(isGeneratingAiMetadata = snapshot.isGeneratingAiMetadata)
+                }
             }
         }
 
         // Initialize LibraryStateHolder
         libraryStateHolder.initialize(viewModelScope)
 
-        // Collect LibraryStateHolder flows to sync with UI State
+        // Sync library folders and loading states
         viewModelScope.launch {
-//            libraryStateHolder.allSongs.collect { songs ->
-//                _playerUiState.update { it.copy(allSongs = songs, songCount = songs.size) }
-//            }
-//        }
-//        viewModelScope.launch {
-//            libraryStateHolder.albums.collect { albums ->
-//                _playerUiState.update { it.copy(albums = albums) }
-//            }
-//        }
-//        viewModelScope.launch {
-//            libraryStateHolder.artists.collect { artists ->
-//                _playerUiState.update { it.copy(artists = artists) }
-//            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.musicFolders.collect { folders ->
-                _playerUiState.update { it.copy(musicFolders = folders) }
-            }
-        }
-        // Sync loading states
-        viewModelScope.launch {
-            libraryStateHolder.isLoadingLibrary.collect { loading ->
-                _playerUiState.update { it.copy(isLoadingInitialSongs = loading) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.isLoadingCategories.collect { loading ->
-                _playerUiState.update { it.copy(isLoadingLibraryCategories = loading) }
+            combine(
+                libraryStateHolder.musicFolders,
+                libraryStateHolder.isLoadingLibrary,
+                libraryStateHolder.isLoadingCategories,
+            ) { folders, loadingLibrary, loadingCategories ->
+                Triple(folders, loadingLibrary, loadingCategories)
+            }.collect { (folders, loadingLibrary, loadingCategories) ->
+                _playerUiState.update {
+                    it.copy(
+                        musicFolders = folders,
+                        isLoadingInitialSongs = loadingLibrary,
+                        isLoadingLibraryCategories = loadingCategories,
+                    )
+                }
             }
         }
 
-        // Sync sort options
+        // Sync sort options and storage filter
         viewModelScope.launch {
-            libraryStateHolder.currentSongSortOption.collect { sort ->
-                _playerUiState.update { it.copy(currentSongSortOption = sort) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.currentAlbumSortOption.collect { sort ->
-                _playerUiState.update { it.copy(currentAlbumSortOption = sort) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.currentArtistSortOption.collect { sort ->
-                _playerUiState.update { it.copy(currentArtistSortOption = sort) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.currentFolderSortOption.collect { sort ->
-                _playerUiState.update { it.copy(currentFolderSortOption = sort) }
-            }
-        }
-        viewModelScope.launch {
-            libraryStateHolder.currentFavoriteSortOption.collect { sort ->
-                _playerUiState.update { it.copy(currentFavoriteSortOption = sort) }
+            combine(
+                libraryStateHolder.currentSongSortOption,
+                libraryStateHolder.currentAlbumSortOption,
+                libraryStateHolder.currentArtistSortOption,
+                libraryStateHolder.currentFolderSortOption,
+                libraryStateHolder.currentFavoriteSortOption,
+            ) { songSort, albumSort, artistSort, folderSort, favoriteSort ->
+                SortOptionsSnapshot(songSort, albumSort, artistSort, folderSort, favoriteSort)
+            }.collect { snapshot ->
+                _playerUiState.update {
+                    it.copy(
+                        currentSongSortOption = snapshot.songSort,
+                        currentAlbumSortOption = snapshot.albumSort,
+                        currentArtistSortOption = snapshot.artistSort,
+                        currentFolderSortOption = snapshot.folderSort,
+                        currentFavoriteSortOption = snapshot.favoriteSort,
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -1543,9 +1549,13 @@ class PlayerViewModel @Inject constructor(
                     // Queue context changed: perform a single remote queue load.
                     remoteQueueLoadJob?.cancel()
                     remoteQueueLoadJob = viewModelScope.launch {
+                        val hydratedQueue = hydrateSongsIfNeeded(desiredQueue)
+                        if (hydratedQueue.isEmpty()) return@launch
+                        val hydratedStartSong =
+                            hydratedQueue.firstOrNull { it.id == song.id } ?: hydratedQueue.first()
                         val loaded = castTransferStateHolder.playRemoteQueue(
-                            songsToPlay = desiredQueue,
-                            startSong = song,
+                            songsToPlay = hydratedQueue,
+                            startSong = hydratedStartSong,
                             isShuffleEnabled = playbackStateHolder.stablePlayerState.value.isShuffleEnabled
                         )
                         if (!loaded) {
@@ -1592,6 +1602,20 @@ class PlayerViewModel @Inject constructor(
     private fun List<Song>.matchesSongOrder(contextSongs: List<Song>): Boolean {
         if (size != contextSongs.size) return false
         return indices.all { this[it].id == contextSongs[it].id }
+    }
+
+    private fun Song.requiresHydration(): Boolean {
+        return contentUriString.isBlank()
+    }
+
+    private suspend fun hydrateSongsIfNeeded(songs: List<Song>): List<Song> {
+        if (songs.isEmpty() || songs.none { it.requiresHydration() }) return songs
+        val hydratedSongs = musicRepository.getSongsByIds(songs.map { it.id }).first()
+        if (hydratedSongs.isEmpty()) return songs
+        val hydratedById = hydratedSongs.associateBy { it.id }
+        return songs.mapNotNull { original ->
+            hydratedById[original.id] ?: original.takeIf { !original.requiresHydration() }
+        }
     }
 
     fun playAlbum(album: Album) {
@@ -1791,9 +1815,13 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun resolveSongFromMediaItem(mediaItem: MediaItem): Song? {
+    private fun resolveSongFromMediaItem(
+        mediaItem: MediaItem,
+        allSongsById: Map<String, Song>? = null
+    ): Song? {
         val resolvedSong =
-            libraryStateHolder.allSongs.value.find { it.id == mediaItem.mediaId }
+            allSongsById?.get(mediaItem.mediaId)
+                ?: libraryStateHolder.allSongs.value.find { it.id == mediaItem.mediaId }
                 ?: _playerUiState.value.currentPlaybackQueue.find { it.id == mediaItem.mediaId }
                 ?: mediaMapper.resolveSongFromMediaItem(mediaItem)
 
@@ -1825,10 +1853,11 @@ class PlayerViewModel @Inject constructor(
         }
 
         val queue = mutableListOf<Song>()
+        val allSongsById = libraryStateHolder.allSongs.value.associateBy(Song::id)
 
         for (i in 0 until count) {
             val mediaItem = currentMediaController.getMediaItemAt(i)
-            resolveSongFromMediaItem(mediaItem)?.let { queue.add(it) }
+            resolveSongFromMediaItem(mediaItem, allSongsById)?.let { queue.add(it) }
         }
 
         _playerUiState.update { it.copy(currentPlaybackQueue = queue.toImmutableList()) }
@@ -2260,10 +2289,7 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             transitionSchedulerJob?.cancel()
 
-            // Validate songs - filter out any with missing files (efficient: uses contentUri check)
-            // Validate songs - filter out any with missing files (efficient: uses contentUri check)
-            // Strict validation removed to prevent skipping valid songs that might fail openInputStream check
-            val validSongs = songsToPlay
+            val validSongs = hydrateSongsIfNeeded(songsToPlay)
 
             if (validSongs.isEmpty()) {
                 _toastEvents.emit(context.getString(R.string.no_valid_songs))
@@ -3206,33 +3232,34 @@ class PlayerViewModel @Inject constructor(
                     currentFolder = folder
                 )
             }
+            hydrateCurrentFolderSongsIfNeeded(path)
         }
     }
 
     fun navigateBackFolder() {
-        _playerUiState.update {
-            val currentFolder = it.currentFolder
-            if (currentFolder != null) {
-                val parentPath = File(currentFolder.path).parent
-                val sourceRoot = it.folderSourceRootPath.ifBlank {
-                    android.os.Environment.getExternalStorageDirectory().path
-                }
-                if (parentPath == null || parentPath == sourceRoot) {
-                    it.copy(
-                        currentFolderPath = null,
-                        currentFolder = null
-                    )
-                } else {
-                    val parentFolder = findFolder(parentPath, _playerUiState.value.musicFolders)
-                    it.copy(
-                        currentFolderPath = parentPath,
-                        currentFolder = parentFolder
-                    )
-                }
-            } else {
-                it
-            }
+        val state = _playerUiState.value
+        val currentFolder = state.currentFolder ?: return
+        val parentPath = File(currentFolder.path).parent
+        val sourceRoot = state.folderSourceRootPath.ifBlank {
+            android.os.Environment.getExternalStorageDirectory().path
         }
+        if (parentPath == null || parentPath == sourceRoot) {
+            _playerUiState.update {
+                it.copy(
+                    currentFolderPath = null,
+                    currentFolder = null
+                )
+            }
+            return
+        }
+        val parentFolder = findFolder(parentPath, state.musicFolders)
+        _playerUiState.update {
+            it.copy(
+                currentFolderPath = parentPath,
+                currentFolder = parentFolder
+            )
+        }
+        hydrateCurrentFolderSongsIfNeeded(parentPath)
     }
 
     private fun findFolder(path: String?, folders: List<MusicFolder>): MusicFolder? {
@@ -3248,6 +3275,23 @@ class PlayerViewModel @Inject constructor(
             queue.addAll(folder.subFolders)
         }
         return null
+    }
+
+    private fun hydrateCurrentFolderSongsIfNeeded(folderPath: String) {
+        viewModelScope.launch {
+            val currentFolder = _playerUiState.value.currentFolder ?: return@launch
+            if (currentFolder.path != folderPath || currentFolder.songs.isEmpty()) return@launch
+            val currentSongs = currentFolder.songs
+            if (currentSongs.none { it.requiresHydration() }) return@launch
+            val hydratedSongs = hydrateSongsIfNeeded(currentSongs)
+            if (hydratedSongs.isEmpty()) return@launch
+            _playerUiState.update { state ->
+                if (state.currentFolder?.path != folderPath) return@update state
+                state.copy(
+                    currentFolder = state.currentFolder.copy(songs = hydratedSongs.toImmutableList())
+                )
+            }
+        }
     }
 
     private fun setFoldersPlaylistViewState(isPlaylistView: Boolean) {
@@ -3667,6 +3711,13 @@ class PlayerViewModel @Inject constructor(
 
     fun selectSongForInfo(song: Song) {
         _selectedSongForInfo.value = song
+        if (!song.requiresHydration()) return
+        viewModelScope.launch {
+            val hydrated = musicRepository.getSongsByIds(listOf(song.id)).first().firstOrNull() ?: return@launch
+            if (_selectedSongForInfo.value?.id == song.id) {
+                _selectedSongForInfo.value = hydrated
+            }
+        }
     }
 
     private fun loadLyricsForCurrentSong() {
