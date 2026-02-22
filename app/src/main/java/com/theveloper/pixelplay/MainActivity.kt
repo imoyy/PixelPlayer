@@ -56,7 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -191,13 +191,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             val mainViewModel: MainViewModel = hiltViewModel()
             val systemDarkTheme = isSystemInDarkTheme()
-            val appThemeMode by userPreferencesRepository.appThemeModeFlow.collectAsState(initial = AppThemeMode.FOLLOW_SYSTEM)
+            val appThemeMode by userPreferencesRepository.appThemeModeFlow.collectAsStateWithLifecycle(initialValue = AppThemeMode.FOLLOW_SYSTEM)
             val useDarkTheme = when (appThemeMode) {
                 AppThemeMode.DARK -> true
                 AppThemeMode.LIGHT -> false
                 else -> systemDarkTheme
             }
-            val isSetupComplete by mainViewModel.isSetupComplete.collectAsState()
+            val isSetupComplete by mainViewModel.isSetupComplete.collectAsStateWithLifecycle()
             var showSetupScreen by remember { mutableStateOf<Boolean?>(null) }
             
             // Crash report dialog state
@@ -218,16 +218,14 @@ class MainActivity : ComponentActivity() {
             // Determine if we need to show Setup based on completion OR missing permissions
             val permissionsValid = permissionState.allPermissionsGranted && !needsAllFilesAccess
 
-            LaunchedEffect(isSetupComplete, permissionsValid) {
-                // If benchmark, skip setup.
-                // Otherwise, show setup if: Setup incomplete OR Permissions invalid
-                // FIX: Only Open setup automatically. Close is handled by callback to prevent premature closing if permissions change mid-flow.
-                if (!isBenchmarkMode && (!isSetupComplete || !permissionsValid)) {
-                    showSetupScreen = true
-                } else if (showSetupScreen == null) {
-                    // FIX: If starting up and conditions are valid, explicitly go to main app.
+            LaunchedEffect(isSetupComplete, permissionsValid, isBenchmarkMode) {
+                if (isBenchmarkMode) {
                     showSetupScreen = false
+                    return@LaunchedEffect
                 }
+
+                val setupComplete = isSetupComplete ?: return@LaunchedEffect
+                showSetupScreen = !setupComplete || !permissionsValid
             }
 
             // Sync Trigger: When we are NOT showing setup (meaning permissions are good and setup is done)
@@ -431,16 +429,16 @@ class MainActivity : ComponentActivity() {
     private fun MainAppContent(playerViewModel: PlayerViewModel, mainViewModel: MainViewModel) {
         Trace.beginSection("MainActivity.MainAppContent")
         val navController = rememberNavController()
-        val isSyncing by mainViewModel.isSyncing.collectAsState()
-        val isLibraryEmpty by mainViewModel.isLibraryEmpty.collectAsState()
-        val hasCompletedInitialSync by mainViewModel.hasCompletedInitialSync.collectAsState()
-        val syncProgress by mainViewModel.syncProgress.collectAsState()
+        val isSyncing by mainViewModel.isSyncing.collectAsStateWithLifecycle()
+        val isLibraryEmpty by mainViewModel.isLibraryEmpty.collectAsStateWithLifecycle()
+        val hasCompletedInitialSync by mainViewModel.hasCompletedInitialSync.collectAsStateWithLifecycle()
+        val syncProgress by mainViewModel.syncProgress.collectAsStateWithLifecycle()
         
         // isMediaControllerReady used below for playlist navigation gate
-        val isMediaControllerReady by playerViewModel.isMediaControllerReady.collectAsState()
+        val isMediaControllerReady by playerViewModel.isMediaControllerReady.collectAsStateWithLifecycle()
         
         // Observe pending playlist navigation
-        val pendingPlaylistNav by _pendingPlaylistNavigation.collectAsState()
+        val pendingPlaylistNav by _pendingPlaylistNavigation.collectAsStateWithLifecycle()
         var processedPlaylistId by remember { mutableStateOf<String?>(null) }
         
         LaunchedEffect(pendingPlaylistNav, isMediaControllerReady) {
@@ -574,8 +572,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val navBarStyle by playerViewModel.navBarStyle.collectAsState()
-        val hapticsEnabled by playerViewModel.hapticsEnabled.collectAsState()
+        val navBarStyle by playerViewModel.navBarStyle.collectAsStateWithLifecycle()
+        val hapticsEnabled by playerViewModel.hapticsEnabled.collectAsStateWithLifecycle()
         val rootView = LocalView.current
         val platformHapticFeedback = LocalHapticFeedback.current
         val appHapticsConfig = remember(hapticsEnabled) {
@@ -658,9 +656,9 @@ class MainActivity : ComponentActivity() {
                             playerViewModel.stablePlayerState
                                 .map { it.currentSong?.id }
                                 .distinctUntilChanged()
-                        }.collectAsState(initial = null)
+                        }.collectAsStateWithLifecycle(initialValue = null)
                         val showPlayerContentArea = currentSongId != null
-                        val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsState()
+                        val navBarCornerRadius by playerViewModel.navBarCornerRadius.collectAsStateWithLifecycle()
                         val navBarElevation = 3.dp
 
                         val playerContentActualBottomRadiusTargetValue by remember(
@@ -783,8 +781,8 @@ class MainActivity : ComponentActivity() {
                             playerViewModel.stablePlayerState
                                 .map { it.currentSong?.id != null }
                                 .distinctUntilChanged()
-                        }.collectAsState(initial = false)
-                        val usePlayerSheetV2 by userPreferencesRepository.usePlayerSheetV2Flow.collectAsState(initial = true)
+                        }.collectAsStateWithLifecycle(initialValue = false)
+                        val usePlayerSheetV2 by userPreferencesRepository.usePlayerSheetV2Flow.collectAsStateWithLifecycle(initialValue = true)
 
                         val routesWithHiddenMiniPlayer = remember { setOf(Screen.NavBarCrRad.route) }
                         val shouldHideMiniPlayer by remember(currentRoute) {
@@ -839,7 +837,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 .distinctUntilChanged()
-                        }.collectAsState(initial = DismissUndoBarSlice())
+                        }.collectAsStateWithLifecycle(initialValue = DismissUndoBarSlice())
                         val onUndoDismissPlaylist = remember(playerViewModel) {
                             { playerViewModel.undoDismissPlaylist() }
                         }

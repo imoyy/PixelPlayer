@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import org.drinkless.tdlib.TdApi
 import racra.compose.smooth_corner_rect_library.AbsoluteSmoothCornerShape
 import java.util.Locale
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @AndroidEntryPoint
 @OptIn(UnstableApi::class)
@@ -99,11 +100,11 @@ fun TelegramLoginScreen(
     viewModel: TelegramLoginViewModel = hiltViewModel(),
     onFinish: () -> Unit
 ) {
-    val authState by viewModel.authorizationState.collectAsState(initial = null)
-    val isLoading by viewModel.isLoading.collectAsState()
-    val phoneNumber by viewModel.phoneNumber.collectAsState()
-    val code by viewModel.code.collectAsState()
-    val password by viewModel.password.collectAsState()
+    val authState by viewModel.authorizationState.collectAsStateWithLifecycle(initialValue = null)
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val phoneNumber by viewModel.phoneNumber.collectAsStateWithLifecycle()
+    val code by viewModel.code.collectAsStateWithLifecycle()
+    val password by viewModel.password.collectAsStateWithLifecycle()
     var showSearchSheet by remember { mutableStateOf(false) }
 
     if (showSearchSheet) {

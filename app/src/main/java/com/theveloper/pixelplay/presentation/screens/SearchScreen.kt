@@ -50,7 +50,7 @@ import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -132,11 +132,11 @@ fun SearchScreen(
     val systemNavBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val bottomBarHeightDp = NavBarContentHeight + systemNavBarInset
     var showPlaylistBottomSheet by remember { mutableStateOf(false) }
-    val uiState by playerViewModel.playerUiState.collectAsState()
+    val uiState by playerViewModel.playerUiState.collectAsStateWithLifecycle()
     val currentFilter by remember { derivedStateOf { uiState.selectedSearchFilter } }
-    val genres by playerViewModel.genres.collectAsState()
-    val stablePlayerState by playerViewModel.stablePlayerState.collectAsState()
-    val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsState()
+    val genres by playerViewModel.genres.collectAsStateWithLifecycle()
+    val stablePlayerState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
+    val favoriteSongIds by playerViewModel.favoriteSongIds.collectAsStateWithLifecycle()
     var showSongInfoBottomSheet by remember { mutableStateOf(false) }
     var selectedSongForInfo by remember { mutableStateOf<Song?>(null) }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -465,7 +465,7 @@ fun SearchScreen(
                 },
             )
             if (showPlaylistBottomSheet) {
-                val playlistUiState by playlistViewModel.uiState.collectAsState()
+                val playlistUiState by playlistViewModel.uiState.collectAsStateWithLifecycle()
 
                 PlaylistBottomSheet(
                     playlistUiState = playlistUiState,
@@ -623,7 +623,7 @@ fun SearchResultsList(
     navController: NavHostController
 ) {
     val localDensity = LocalDensity.current
-    val playerStableState by playerViewModel.stablePlayerState.collectAsState()
+    val playerStableState by playerViewModel.stablePlayerState.collectAsStateWithLifecycle()
 
     if (results.isEmpty()) {
         Box(
