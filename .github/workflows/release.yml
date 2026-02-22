@@ -46,7 +46,7 @@ jobs:
           echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
 
       - name: Build release APK (arm64)
-        run: ./gradlew assembleRelease -Pandroid.injected.build.abi=arm64-v8a
+        run: ./gradlew assembleRelease
 
       - name: Rename APK
         run: |
