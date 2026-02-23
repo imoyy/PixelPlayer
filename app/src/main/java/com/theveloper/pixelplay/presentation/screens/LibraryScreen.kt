@@ -2975,8 +2975,8 @@ fun LibraryAlbumsTab(
                     .padding(start = 14.dp, end = 14.dp, bottom = 6.dp)
                     .clip(
                         RoundedCornerShape(
-                            topStart = 26.dp,
-                            topEnd = 26.dp,
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
                             bottomStart = PlayerSheetCollapsedCornerRadius,
                             bottomEnd = PlayerSheetCollapsedCornerRadius
                         )
@@ -3001,8 +3001,8 @@ fun LibraryAlbumsTab(
                     .padding(start = 14.dp, end = 14.dp, bottom = 6.dp)
                     .clip(
                         RoundedCornerShape(
-                            topStart = 26.dp,
-                            topEnd = 26.dp,
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
                             bottomStart = PlayerSheetCollapsedCornerRadius,
                             bottomEnd = PlayerSheetCollapsedCornerRadius
                         )
@@ -3055,8 +3055,8 @@ fun LibraryAlbumsTab(
                                 .padding(start = 14.dp, end = if (listState.canScrollForward || listState.canScrollBackward) 24.dp else 14.dp, bottom = 6.dp)
                                 .clip(
                                     RoundedCornerShape(
-                                        topStart = 26.dp,
-                                        topEnd = 26.dp,
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
                                         bottomStart = PlayerSheetCollapsedCornerRadius,
                                         bottomEnd = PlayerSheetCollapsedCornerRadius
                                     )
@@ -3109,8 +3109,8 @@ fun LibraryAlbumsTab(
                                 .padding(start = 14.dp, end = if (gridState.canScrollForward || gridState.canScrollBackward) 24.dp else 14.dp, bottom = 6.dp)
                                 .clip(
                                     RoundedCornerShape(
-                                        topStart = 26.dp,
-                                        topEnd = 26.dp,
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
                                         bottomStart = PlayerSheetCollapsedCornerRadius,
                                         bottomEnd = PlayerSheetCollapsedCornerRadius
                                     )
