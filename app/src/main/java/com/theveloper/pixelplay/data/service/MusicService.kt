@@ -16,6 +16,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -68,6 +69,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import com.theveloper.pixelplay.data.preferences.ThemePreference
 import com.theveloper.pixelplay.data.service.auto.AutoMediaBrowseTree
+import com.theveloper.pixelplay.data.service.wear.WearStatePublisher
 import com.theveloper.pixelplay.presentation.viewmodel.ColorSchemePair
 import com.theveloper.pixelplay.utils.MediaItemBuilder
 
@@ -94,6 +96,8 @@ class MusicService : MediaLibraryService() {
     lateinit var colorSchemeProcessor: ColorSchemeProcessor
     @Inject
     lateinit var autoMediaBrowseTree: AutoMediaBrowseTree
+    @Inject
+    lateinit var wearStatePublisher: WearStatePublisher
 
     private var favoriteSongIds = emptySet<String>()
     private var mediaSession: MediaLibraryService.MediaLibrarySession? = null
@@ -502,6 +506,13 @@ class MusicService : MediaLibraryService() {
         }
 
         override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+            requestWidgetAndWearRefreshWithFollowUp()
+            mediaSession?.let { refreshMediaSessionUi(it) }
+        }
+
+        override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+            // Some devices/apps deliver title/artist/art after transition callback.
+            // Force an immediate publish for real-time watch metadata.
             requestWidgetFullUpdate(force = true)
             mediaSession?.let { refreshMediaSessionUi(it) }
         }
@@ -548,6 +559,7 @@ class MusicService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = mediaSession
 
     override fun onDestroy() {
+        wearStatePublisher.clearState()
         mediaSession?.run {
             release()
             mediaSession = null
@@ -573,6 +585,7 @@ class MusicService : MediaLibraryService() {
 
     // --- LÓGICA PARA ACTUALIZACIÓN DE WIDGETS Y DATOS ---
     private var debouncedWidgetUpdateJob: Job? = null
+    private var followUpWidgetUpdateJob: Job? = null
     private val WIDGET_STATE_DEBOUNCE_MS = 300L
 
     private fun requestWidgetFullUpdate(force: Boolean = false) {
@@ -585,9 +598,22 @@ class MusicService : MediaLibraryService() {
         }
     }
 
+    private fun requestWidgetAndWearRefreshWithFollowUp() {
+        requestWidgetFullUpdate(force = true)
+        followUpWidgetUpdateJob?.cancel()
+        followUpWidgetUpdateJob = serviceScope.launch {
+            delay(250L)
+            requestWidgetFullUpdate(force = true)
+        }
+    }
+
     private suspend fun processWidgetUpdateInternal() {
+        val player = engine.masterPlayer
+        val currentMediaId = withContext(Dispatchers.Main) { player.currentMediaItem?.mediaId }
         val playerInfo = buildPlayerInfo()
         updateGlanceWidgets(playerInfo)
+        // Publish state to Wear OS watch
+        wearStatePublisher.publishState(currentMediaId, playerInfo)
     }
 
     private suspend fun buildPlayerInfo(): PlayerInfo {

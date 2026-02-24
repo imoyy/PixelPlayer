@@ -1,0 +1,89 @@
+package com.theveloper.pixelplay.data
+
+import android.app.Application
+import com.google.android.gms.wearable.Wearable
+import com.theveloper.pixelplay.shared.WearDataPaths
+import com.theveloper.pixelplay.shared.WearPlaybackCommand
+import com.theveloper.pixelplay.shared.WearVolumeCommand
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import timber.log.Timber
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Sends playback and volume commands to the phone app via the Wear Data Layer MessageClient.
+ * Resolves the connected phone node and sends serialized command messages.
+ */
+@Singleton
+class WearPlaybackController @Inject constructor(
+    private val application: Application,
+    private val stateRepository: WearStateRepository,
+) {
+    private val messageClient by lazy { Wearable.getMessageClient(application) }
+    private val nodeClient by lazy { Wearable.getNodeClient(application) }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val json = Json { ignoreUnknownKeys = true }
+
+    companion object {
+        private const val TAG = "WearPlaybackCtrl"
+    }
+
+    fun sendCommand(command: WearPlaybackCommand) {
+        scope.launch {
+            sendMessageToPhone(
+                path = WearDataPaths.PLAYBACK_COMMAND,
+                data = json.encodeToString(command).toByteArray(Charsets.UTF_8)
+            )
+        }
+    }
+
+    fun sendVolumeCommand(command: WearVolumeCommand) {
+        scope.launch {
+            sendMessageToPhone(
+                path = WearDataPaths.VOLUME_COMMAND,
+                data = json.encodeToString(command).toByteArray(Charsets.UTF_8)
+            )
+        }
+    }
+
+    // Convenience methods for common actions
+    fun togglePlayPause() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_PLAY_PAUSE))
+    fun next() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.NEXT))
+    fun previous() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.PREVIOUS))
+    fun toggleFavorite() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_FAVORITE))
+    fun toggleShuffle() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_SHUFFLE))
+    fun cycleRepeat() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.CYCLE_REPEAT))
+    fun volumeUp() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.UP))
+    fun volumeDown() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.DOWN))
+
+    private suspend fun sendMessageToPhone(path: String, data: ByteArray) {
+        try {
+            val nodes = nodeClient.connectedNodes.await()
+            if (nodes.isEmpty()) {
+                stateRepository.setPhoneConnected(false)
+                Timber.tag(TAG).w("No connected nodes found — phone not reachable")
+                return
+            }
+            stateRepository.setPhoneConnected(true)
+
+            // Send to all connected nodes (typically just one phone)
+            nodes.forEach { node ->
+                try {
+                    messageClient.sendMessage(node.id, path, data).await()
+                    Timber.tag(TAG).d("Sent message to ${node.displayName} on $path")
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "Failed to send message to ${node.displayName}")
+                }
+            }
+        } catch (e: Exception) {
+            stateRepository.setPhoneConnected(false)
+            Timber.tag(TAG).e(e, "Failed to get connected nodes")
+        }
+    }
+}
