@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
@@ -70,6 +71,7 @@ import androidx.wear.compose.material.Text
 import com.google.android.horologist.compose.layout.ScalingLazyColumn
 import com.google.android.horologist.compose.layout.rememberResponsiveColumnState
 import com.theveloper.pixelplay.presentation.components.AlwaysOnScalingPositionIndicator
+import com.theveloper.pixelplay.presentation.components.CurvedPagerIndicator
 import com.theveloper.pixelplay.presentation.shapes.RoundedStarShape
 import com.theveloper.pixelplay.presentation.theme.LocalWearPalette
 import com.theveloper.pixelplay.presentation.viewmodel.WearPlayerViewModel
@@ -163,12 +165,14 @@ private fun PlayerContent(
             }
         }
 
-        PagerDotsIndicator(
+        CurvedPagerIndicator(
             pageCount = pagerState.pageCount,
             selectedPage = pagerState.currentPage,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .zIndex(4f)
                 .padding(bottom = 8.dp),
+            color = palette.textPrimary,
         )
     }
 }
@@ -281,9 +285,6 @@ private fun MainPlayerPage(
         AlwaysOnScalingPositionIndicator(
             listState = columnState.state,
             color = palette.textPrimary,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 2.dp, bottom = 8.dp),
         )
     }
 }
@@ -666,40 +667,6 @@ private fun UtilityPillButton(
             style = MaterialTheme.typography.button,
             maxLines = 1,
         )
-    }
-}
-
-@Composable
-private fun PagerDotsIndicator(
-    pageCount: Int,
-    selectedPage: Int,
-    modifier: Modifier = Modifier,
-) {
-    val palette = LocalWearPalette.current
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        repeat(pageCount) { index ->
-            val selected = index == selectedPage
-            val dotColor by animateColorAsState(
-                targetValue = if (selected) palette.textPrimary else palette.textPrimary.copy(alpha = 0.38f),
-                animationSpec = tween(durationMillis = 160),
-                label = "pagerDotColor",
-            )
-            val dotSize by animateDpAsState(
-                targetValue = if (selected) 8.dp else 6.dp,
-                animationSpec = tween(durationMillis = 160),
-                label = "pagerDotSize",
-            )
-            Box(
-                modifier = Modifier
-                    .size(dotSize)
-                    .clip(RoundedCornerShape(99.dp))
-                    .background(dotColor),
-            )
-        }
     }
 }
 

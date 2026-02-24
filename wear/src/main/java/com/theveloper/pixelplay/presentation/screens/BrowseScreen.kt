@@ -120,9 +120,6 @@ fun BrowseScreen(
         AlwaysOnScalingPositionIndicator(
             listState = columnState.state,
             color = palette.textPrimary,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 2.dp, bottom = 8.dp),
         )
     }
 }
