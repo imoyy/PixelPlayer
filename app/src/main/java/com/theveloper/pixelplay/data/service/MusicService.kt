@@ -205,6 +205,8 @@ class MusicService : MediaLibraryService() {
                 val defaultResult = super.onConnect(session, controller)
                 val customCommands = listOf(
                     MusicNotificationProvider.CUSTOM_COMMAND_LIKE,
+                    MusicNotificationProvider.CUSTOM_COMMAND_SET_FAVORITE_STATE,
+                    MusicNotificationProvider.CUSTOM_COMMAND_TOGGLE_SHUFFLE,
                     MusicNotificationProvider.CUSTOM_COMMAND_SHUFFLE_ON,
                     MusicNotificationProvider.CUSTOM_COMMAND_SHUFFLE_OFF,
                     MusicNotificationProvider.CUSTOM_COMMAND_SET_SHUFFLE_STATE,
@@ -238,6 +240,10 @@ class MusicService : MediaLibraryService() {
                     MusicNotificationProvider.CUSTOM_COMMAND_CANCEL_COUNTED_PLAY -> {
                         stopCountedPlay()
                     }
+                    MusicNotificationProvider.CUSTOM_COMMAND_TOGGLE_SHUFFLE -> {
+                        val enabled = !session.player.shuffleModeEnabled
+                        updateManualShuffleState(session, enabled = enabled, broadcast = true)
+                    }
                     MusicNotificationProvider.CUSTOM_COMMAND_SHUFFLE_ON -> {
                         Timber.tag("MusicService")
                             .d("Executing SHUFFLE_ON. Current shuffleMode: ${session.player.shuffleModeEnabled}")
@@ -264,29 +270,28 @@ class MusicService : MediaLibraryService() {
                         }
                         session.player.repeatMode = newMode
                         refreshMediaSessionUi(session)
+                        requestWidgetFullUpdate(force = true)
                     }
                     MusicNotificationProvider.CUSTOM_COMMAND_LIKE -> {
-                        val songId = session.player.currentMediaItem?.mediaId ?: return@onCustomCommand Futures.immediateFuture(SessionResult(
-                            SessionError.ERROR_UNKNOWN))
-                        Timber.tag("MusicService").d("Executing LIKE for songId: $songId")
-                        val isCurrentlyFavorite = favoriteSongIds.contains(songId)
-                        val targetFavoriteState = !isCurrentlyFavorite
-                        favoriteSongIds = if (isCurrentlyFavorite) {
-                            favoriteSongIds - songId
-                        } else {
-                            favoriteSongIds + songId
-                        }
-
-                        refreshMediaSessionUi(session)
-
-                        serviceScope.launch {
-                            Timber.tag("MusicService").d("Toggling favorite status for $songId")
-                            musicRepository.setFavoriteStatus(songId, targetFavoriteState)
-                            userPreferencesRepository.setFavoriteSong(songId, targetFavoriteState)
-                            Timber.tag("MusicService")
-                                .d("Toggled favorite status. Updating notification.")
-                            refreshMediaSessionUi(session)
-                        }
+                        val songId = session.player.currentMediaItem?.mediaId
+                            ?: return@onCustomCommand Futures.immediateFuture(
+                                SessionResult(SessionError.ERROR_UNKNOWN)
+                            )
+                        val targetFavoriteState = !favoriteSongIds.contains(songId)
+                        return@onCustomCommand setCurrentSongFavoriteState(
+                            session = session,
+                            targetFavoriteState = targetFavoriteState
+                        )
+                    }
+                    MusicNotificationProvider.CUSTOM_COMMAND_SET_FAVORITE_STATE -> {
+                        val enabled = args.getBoolean(
+                            MusicNotificationProvider.EXTRA_FAVORITE_ENABLED,
+                            false
+                        )
+                        return@onCustomCommand setCurrentSongFavoriteState(
+                            session = session,
+                            targetFavoriteState = enabled
+                        )
                     }
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -432,6 +437,7 @@ class MusicService : MediaLibraryService() {
                         Timber.tag("MusicService")
                             .d("Favorite status changed for current song. Updating notification.")
                         mediaSession?.let { refreshMediaSessionUi(it) }
+                        requestWidgetFullUpdate(force = true)
                     }
                 }
             }
@@ -463,7 +469,7 @@ class MusicService : MediaLibraryService() {
                     }
                 }
                 PlayerActions.SHUFFLE -> {
-                    val newState = !isManualShuffleEnabled
+                    val newState = !player.shuffleModeEnabled
                     mediaSession?.let { session ->
                         updateManualShuffleState(session, enabled = newState, broadcast = true)
                     }
@@ -520,6 +526,7 @@ class MusicService : MediaLibraryService() {
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             Timber.tag("MusicService")
                 .d("playerListener.onShuffleModeEnabledChanged: $shuffleModeEnabled")
+            isManualShuffleEnabled = shuffleModeEnabled
             requestWidgetFullUpdate(force = true)
             mediaSession?.let { refreshMediaSessionUi(it) }
         }
@@ -620,7 +627,7 @@ class MusicService : MediaLibraryService() {
         val player = engine.masterPlayer
         val currentItem = withContext(Dispatchers.Main) { player.currentMediaItem }
         val isPlaying = withContext(Dispatchers.Main) { player.isPlaying }
-        val shuffleEnabled = isManualShuffleEnabled // Manual shuffle for sync with PlayerViewModel
+        val shuffleEnabled = withContext(Dispatchers.Main) { player.shuffleModeEnabled }
         val repeatMode = withContext(Dispatchers.Main) { player.repeatMode }
         val currentPosition = withContext(Dispatchers.Main) { player.currentPosition }
         val totalDuration = withContext(Dispatchers.Main) { player.duration.coerceAtLeast(0) }
@@ -670,10 +677,7 @@ class MusicService : MediaLibraryService() {
             )
         }
 
-        val isFavorite = false
-//        val isFavorite = mediaId?.let {
-//            //musicRepository.getFavoriteSongs().firstOrNull()?.any { song -> song.id.toString() == it }
-//        } ?: false
+        val isFavorite = isSongFavorite(mediaId)
 
         val queueItems = mutableListOf<com.theveloper.pixelplay.data.model.QueueItem>()
         val timeline = withContext(Dispatchers.Main) { player.currentTimeline }
@@ -878,6 +882,7 @@ class MusicService : MediaLibraryService() {
     ) {
         val changed = isManualShuffleEnabled != enabled
         isManualShuffleEnabled = enabled
+        session.player.shuffleModeEnabled = enabled
         
         if (persistentShuffleEnabled) {
             serviceScope.launch {
@@ -898,6 +903,41 @@ class MusicService : MediaLibraryService() {
         requestWidgetFullUpdate(force = true)
     }
 
+    private fun setCurrentSongFavoriteState(
+        session: MediaSession,
+        targetFavoriteState: Boolean
+    ): ListenableFuture<SessionResult> {
+        val songId = session.player.currentMediaItem?.mediaId
+            ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
+
+        val isCurrentlyFavorite = favoriteSongIds.contains(songId)
+        if (isCurrentlyFavorite == targetFavoriteState) {
+            refreshMediaSessionUi(session)
+            requestWidgetFullUpdate(force = true)
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+
+        favoriteSongIds = if (targetFavoriteState) {
+            favoriteSongIds + songId
+        } else {
+            favoriteSongIds - songId
+        }
+
+        refreshMediaSessionUi(session)
+        requestWidgetFullUpdate(force = true)
+
+        serviceScope.launch {
+            Timber.tag("MusicService")
+                .d("Applying favorite=$targetFavoriteState for songId: $songId")
+            musicRepository.setFavoriteStatus(songId, targetFavoriteState)
+            userPreferencesRepository.setFavoriteSong(songId, targetFavoriteState)
+            refreshMediaSessionUi(session)
+            requestWidgetFullUpdate(force = true)
+        }
+
+        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+    }
+
     private fun buildMediaButtonPreferences(session: MediaSession): List<CommandButton> {
         val player = session.player
         val songId = player.currentMediaItem?.mediaId
@@ -909,7 +949,7 @@ class MusicService : MediaLibraryService() {
             .setSessionCommand(SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_LIKE, Bundle.EMPTY))
             .build()
 
-        val shuffleOn = isManualShuffleEnabled
+        val shuffleOn = player.shuffleModeEnabled
         val shuffleCommandAction = if (shuffleOn) {
             MusicNotificationProvider.CUSTOM_COMMAND_SHUFFLE_OFF
         } else {

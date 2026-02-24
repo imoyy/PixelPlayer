@@ -3,6 +3,7 @@ package com.theveloper.pixelplay.data.service.wear
 import android.content.ComponentName
 import android.content.Context
 import android.media.AudioManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import com.google.android.gms.wearable.MessageEvent
@@ -10,8 +11,10 @@ import com.google.android.gms.wearable.WearableListenerService
 import com.google.common.util.concurrent.ListenableFuture
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.media3.session.SessionCommand
 import androidx.core.content.ContextCompat
 import com.theveloper.pixelplay.data.service.MusicService
+import com.theveloper.pixelplay.data.service.MusicNotificationProvider
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearPlaybackCommand
 import com.theveloper.pixelplay.shared.WearVolumeCommand
@@ -69,25 +72,41 @@ class WearCommandReceiver : WearableListenerService() {
                 WearPlaybackCommand.NEXT -> controller.seekToNext()
                 WearPlaybackCommand.PREVIOUS -> controller.seekToPrevious()
                 WearPlaybackCommand.TOGGLE_SHUFFLE -> {
-                    controller.shuffleModeEnabled = !controller.shuffleModeEnabled
+                    controller.sendCustomCommand(
+                        SessionCommand(
+                            MusicNotificationProvider.CUSTOM_COMMAND_TOGGLE_SHUFFLE,
+                            Bundle.EMPTY
+                        ),
+                        Bundle.EMPTY
+                    )
                 }
                 WearPlaybackCommand.CYCLE_REPEAT -> {
-                    val newMode = when (controller.repeatMode) {
-                        androidx.media3.common.Player.REPEAT_MODE_OFF ->
-                            androidx.media3.common.Player.REPEAT_MODE_ONE
-                        androidx.media3.common.Player.REPEAT_MODE_ONE ->
-                            androidx.media3.common.Player.REPEAT_MODE_ALL
-                        else -> androidx.media3.common.Player.REPEAT_MODE_OFF
-                    }
-                    controller.repeatMode = newMode
+                    controller.sendCustomCommand(
+                        SessionCommand(
+                            MusicNotificationProvider.CUSTOM_COMMAND_CYCLE_REPEAT_MODE,
+                            Bundle.EMPTY
+                        ),
+                        Bundle.EMPTY
+                    )
                 }
                 WearPlaybackCommand.TOGGLE_FAVORITE -> {
-                    // Favorite toggling is handled via custom session command
-                    val sessionCommand = androidx.media3.session.SessionCommand(
-                        "com.theveloper.pixelplay.LIKE",
-                        android.os.Bundle.EMPTY
-                    )
-                    controller.sendCustomCommand(sessionCommand, android.os.Bundle.EMPTY)
+                    val targetEnabled = command.targetEnabled
+                    if (targetEnabled == null) {
+                        val sessionCommand = SessionCommand(
+                            MusicNotificationProvider.CUSTOM_COMMAND_LIKE,
+                            Bundle.EMPTY
+                        )
+                        controller.sendCustomCommand(sessionCommand, Bundle.EMPTY)
+                    } else {
+                        val args = Bundle().apply {
+                            putBoolean(MusicNotificationProvider.EXTRA_FAVORITE_ENABLED, targetEnabled)
+                        }
+                        val sessionCommand = SessionCommand(
+                            MusicNotificationProvider.CUSTOM_COMMAND_SET_FAVORITE_STATE,
+                            Bundle.EMPTY
+                        )
+                        controller.sendCustomCommand(sessionCommand, args)
+                    }
                 }
                 else -> Timber.tag(TAG).w("Unknown playback action: ${command.action}")
             }

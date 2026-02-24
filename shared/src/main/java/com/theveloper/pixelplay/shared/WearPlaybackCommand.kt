@@ -11,6 +11,8 @@ data class WearPlaybackCommand(
     val action: String,
     /** Optional song ID for PLAY_ITEM action */
     val songId: String? = null,
+    /** Optional target state for idempotent toggle actions (favorite/shuffle). */
+    val targetEnabled: Boolean? = null,
 ) {
     companion object {
         const val PLAY = "play"

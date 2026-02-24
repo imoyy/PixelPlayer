@@ -34,26 +34,17 @@ class WearPlayerViewModel @Inject constructor(
 
     fun next() = playbackController.next()
     fun previous() = playbackController.previous()
-    fun toggleFavorite() = playbackController.toggleFavorite()
+
+    fun toggleFavorite() {
+        val current = playerState.value
+        playbackController.toggleFavorite(targetEnabled = !current.isFavorite)
+    }
 
     fun toggleShuffle() {
-        val current = playerState.value
-        stateRepository.updatePlayerState(
-            current.copy(isShuffleEnabled = !current.isShuffleEnabled)
-        )
         playbackController.toggleShuffle()
     }
 
     fun cycleRepeat() {
-        val current = playerState.value
-        val nextRepeatMode = when (current.repeatMode) {
-            0 -> 1
-            1 -> 2
-            else -> 0
-        }
-        stateRepository.updatePlayerState(
-            current.copy(repeatMode = nextRepeatMode)
-        )
         playbackController.cycleRepeat()
     }
 

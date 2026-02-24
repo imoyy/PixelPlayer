@@ -56,8 +56,18 @@ class WearPlaybackController @Inject constructor(
     fun togglePlayPause() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_PLAY_PAUSE))
     fun next() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.NEXT))
     fun previous() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.PREVIOUS))
-    fun toggleFavorite() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_FAVORITE))
-    fun toggleShuffle() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_SHUFFLE))
+    fun toggleFavorite(targetEnabled: Boolean? = null) = sendCommand(
+        WearPlaybackCommand(
+            action = WearPlaybackCommand.TOGGLE_FAVORITE,
+            targetEnabled = targetEnabled
+        )
+    )
+    fun toggleShuffle(targetEnabled: Boolean? = null) = sendCommand(
+        WearPlaybackCommand(
+            action = WearPlaybackCommand.TOGGLE_SHUFFLE,
+            targetEnabled = targetEnabled
+        )
+    )
     fun cycleRepeat() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.CYCLE_REPEAT))
     fun volumeUp() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.UP))
     fun volumeDown() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.DOWN))
