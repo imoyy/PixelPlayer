@@ -29,6 +29,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.nio.ByteBuffer
+import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
 /**
@@ -258,44 +259,53 @@ class WearDataListenerService : WearableListenerService() {
      * to write the audio data to local storage.
      */
     override fun onChannelOpened(channel: ChannelClient.Channel) {
-        if (channel.path != WearDataPaths.TRANSFER_CHANNEL) {
-            Timber.tag(TAG).d("Ignoring channel on path: ${channel.path}")
-            return
-        }
-
-        Timber.tag(TAG).d("Transfer channel opened")
-
-        scope.launch {
-            try {
-                val channelClient = Wearable.getChannelClient(this@WearDataListenerService)
-                val inputStream = channelClient.getInputStream(channel).await()
-
-                // Read header: requestId length (4 bytes big-endian) + requestId bytes
-                val lengthBytes = ByteArray(4)
-                var totalRead = 0
-                while (totalRead < 4) {
-                    val read = inputStream.read(lengthBytes, totalRead, 4 - totalRead)
-                    if (read == -1) throw Exception("Stream ended before requestId length")
-                    totalRead += read
+        when (channel.path) {
+            WearDataPaths.TRANSFER_CHANNEL -> {
+                Timber.tag(TAG).d("Audio transfer channel opened")
+                scope.launch {
+                    runCatching {
+                        val channelClient = Wearable.getChannelClient(this@WearDataListenerService)
+                        val inputStream = channelClient.getInputStream(channel).await()
+                        val requestId = readLengthPrefixedString(inputStream, "requestId")
+                        Timber.tag(TAG).d("Audio transfer channel: requestId=$requestId")
+                        transferRepository.onChannelOpened(requestId, inputStream)
+                    }.onFailure { e ->
+                        Timber.tag(TAG).e(e, "Failed to receive audio transfer channel")
+                    }
                 }
-                val idLength = ByteBuffer.wrap(lengthBytes).int
+            }
 
-                val requestIdBytes = ByteArray(idLength)
-                totalRead = 0
-                while (totalRead < idLength) {
-                    val read = inputStream.read(requestIdBytes, totalRead, idLength - totalRead)
-                    if (read == -1) throw Exception("Stream ended before requestId")
-                    totalRead += read
+            WearDataPaths.TRANSFER_ARTWORK_CHANNEL -> {
+                Timber.tag(TAG).d("Artwork transfer channel opened")
+                scope.launch {
+                    runCatching {
+                        val channelClient = Wearable.getChannelClient(this@WearDataListenerService)
+                        val inputStream = channelClient.getInputStream(channel).await()
+                        inputStream.use { stream ->
+                            val requestId = readLengthPrefixedString(stream, "requestId")
+                            val songId = readLengthPrefixedString(stream, "songId")
+                            val artworkBytes = stream.readBytesSafely()
+                            if (artworkBytes.isNotEmpty()) {
+                                transferRepository.onArtworkReceived(
+                                    requestId = requestId,
+                                    songId = songId,
+                                    artworkBytes = artworkBytes,
+                                )
+                                Timber.tag(TAG).d(
+                                    "Artwork received for requestId=$requestId, bytes=${artworkBytes.size}"
+                                )
+                            } else {
+                                Timber.tag(TAG).d("Artwork stream empty for requestId=$requestId")
+                            }
+                        }
+                    }.onFailure { e ->
+                        Timber.tag(TAG).e(e, "Failed to receive artwork transfer channel")
+                    }
                 }
-                val requestId = String(requestIdBytes, Charsets.UTF_8)
+            }
 
-                Timber.tag(TAG).d("Transfer channel: requestId=$requestId")
-
-                // Delegate to repository to write the audio data to disk
-                transferRepository.onChannelOpened(requestId, inputStream)
-
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Failed to receive transfer channel")
+            else -> {
+                Timber.tag(TAG).d("Ignoring channel on path: ${channel.path}")
             }
         }
     }
@@ -303,5 +313,44 @@ class WearDataListenerService : WearableListenerService() {
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+
+    private fun readLengthPrefixedString(inputStream: java.io.InputStream, label: String): String {
+        val lengthBytes = ByteArray(4)
+        var totalRead = 0
+        while (totalRead < 4) {
+            val read = inputStream.read(lengthBytes, totalRead, 4 - totalRead)
+            if (read == -1) throw Exception("Stream ended before $label length")
+            totalRead += read
+        }
+        val valueLength = ByteBuffer.wrap(lengthBytes).int
+        if (valueLength <= 0 || valueLength > 4096) {
+            throw Exception("Invalid $label length: $valueLength")
+        }
+
+        val valueBytes = ByteArray(valueLength)
+        totalRead = 0
+        while (totalRead < valueLength) {
+            val read = inputStream.read(valueBytes, totalRead, valueLength - totalRead)
+            if (read == -1) throw Exception("Stream ended before $label bytes")
+            totalRead += read
+        }
+        return String(valueBytes, Charsets.UTF_8)
+    }
+
+    private fun java.io.InputStream.readBytesSafely(maxBytes: Int = 2_000_000): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val read = read(buffer)
+            if (read <= 0) break
+            total += read
+            if (total > maxBytes) {
+                throw Exception("Artwork payload exceeds $maxBytes bytes")
+            }
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray()
     }
 }

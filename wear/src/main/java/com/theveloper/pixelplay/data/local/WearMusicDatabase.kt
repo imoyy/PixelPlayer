@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * Room database for locally stored songs on the watch.
  * Tracks songs that have been transferred from the phone for offline playback.
  */
-@Database(entities = [LocalSongEntity::class], version = 2, exportSchema = false)
+@Database(entities = [LocalSongEntity::class], version = 3, exportSchema = false)
 abstract class WearMusicDatabase : RoomDatabase() {
     abstract fun localSongDao(): LocalSongDao
 
@@ -17,6 +17,12 @@ abstract class WearMusicDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE local_songs ADD COLUMN paletteSeedArgb INTEGER")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE local_songs ADD COLUMN artworkPath TEXT")
             }
         }
     }

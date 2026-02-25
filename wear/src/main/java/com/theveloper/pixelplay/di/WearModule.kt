@@ -47,7 +47,10 @@ object WearModule {
             WearMusicDatabase::class.java,
             "wear_music.db"
         )
-            .addMigrations(WearMusicDatabase.MIGRATION_1_2)
+            .addMigrations(
+                WearMusicDatabase.MIGRATION_1_2,
+                WearMusicDatabase.MIGRATION_2_3,
+            )
             .build()
 
     @Provides

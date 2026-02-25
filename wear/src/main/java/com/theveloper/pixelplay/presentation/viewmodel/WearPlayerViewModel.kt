@@ -80,8 +80,9 @@ class WearPlayerViewModel @Inject constructor(
     val albumArt: StateFlow<Bitmap?> = combine(
         stateRepository.outputTarget,
         stateRepository.albumArt,
-    ) { target, remoteAlbumArt ->
-        if (target == WearOutputTarget.PHONE) remoteAlbumArt else null
+        localPlayerRepository.localAlbumArt,
+    ) { target, remoteAlbumArt, localAlbumArt ->
+        if (target == WearOutputTarget.PHONE) remoteAlbumArt else localAlbumArt
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val paletteSeedArgb: StateFlow<Int?> = combine(

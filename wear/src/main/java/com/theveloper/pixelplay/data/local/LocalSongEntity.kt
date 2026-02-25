@@ -20,6 +20,7 @@ data class LocalSongEntity(
     val bitrate: Int,
     val sampleRate: Int,
     val paletteSeedArgb: Int? = null,
+    val artworkPath: String? = null,
     val localPath: String,
     val transferredAt: Long,
 )

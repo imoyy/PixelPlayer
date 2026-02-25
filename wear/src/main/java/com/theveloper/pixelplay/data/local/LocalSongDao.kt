@@ -27,6 +27,9 @@ interface LocalSongDao {
     @Query("UPDATE local_songs SET paletteSeedArgb = :paletteSeedArgb WHERE songId = :songId")
     suspend fun updatePaletteSeed(songId: String, paletteSeedArgb: Int)
 
+    @Query("UPDATE local_songs SET artworkPath = :artworkPath WHERE songId = :songId")
+    suspend fun updateArtworkPath(songId: String, artworkPath: String?)
+
     @Query("DELETE FROM local_songs WHERE songId = :songId")
     suspend fun deleteById(songId: String)
 

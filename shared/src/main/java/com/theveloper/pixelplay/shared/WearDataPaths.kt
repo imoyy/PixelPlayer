@@ -41,6 +41,9 @@ object WearDataPaths {
     /** ChannelClient path for audio file streaming (phone -> watch) */
     const val TRANSFER_CHANNEL = "/transfer_audio"
 
+    /** ChannelClient path for artwork file streaming (phone -> watch) */
+    const val TRANSFER_ARTWORK_CHANNEL = "/transfer_artwork"
+
     /** Message path for transfer progress updates (phone -> watch) */
     const val TRANSFER_PROGRESS = "/transfer_progress"
 

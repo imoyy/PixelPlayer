@@ -48,6 +48,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.InputStream
@@ -79,6 +80,7 @@ class WearCommandReceiver : WearableListenerService() {
     /** Set of requestIds that have been cancelled by the watch */
     private val cancelledTransfers = ConcurrentHashMap.newKeySet<String>()
     private val albumPaletteSeedCache = ConcurrentHashMap<Long, Int>()
+    private val albumArtworkTransferCache = ConcurrentHashMap<Long, ByteArray>()
 
     companion object {
         private const val TAG = "WearCommandReceiver"
@@ -87,6 +89,9 @@ class WearCommandReceiver : WearableListenerService() {
         private const val MAX_ARTISTS = 200
         private const val TRANSFER_CHUNK_SIZE = 8192
         private const val PROGRESS_UPDATE_INTERVAL_BYTES = 65536L
+        private const val TRANSFER_ARTWORK_MAX_DIMENSION = 1024
+        private const val TRANSFER_ARTWORK_QUALITY = 95
+        private const val TRANSFER_ARTWORK_MAX_BYTES = 1_500_000
     }
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
@@ -695,6 +700,7 @@ class WearCommandReceiver : WearableListenerService() {
 
                 val fileSize = getSongFileSize(song)
                 val paletteSeedArgb = resolvePaletteSeedArgb(song)
+                val transferArtworkBytes = resolveTransferArtworkBytes(song)
 
                 // 4. Send metadata to watch
                 val metadata = WearTransferMetadata(
@@ -721,7 +727,21 @@ class WearCommandReceiver : WearableListenerService() {
 
                 Timber.tag(TAG).d("Sent transfer metadata: ${song.title} ($fileSize bytes)")
 
-                // 5. Stream audio via ChannelClient
+                // 5. Stream artwork via dedicated channel (optional)
+                if (transferArtworkBytes != null) {
+                    runCatching {
+                        streamArtworkToWatch(
+                            nodeId = messageEvent.sourceNodeId,
+                            requestId = request.requestId,
+                            songId = song.id,
+                            artworkBytes = transferArtworkBytes,
+                        )
+                    }.onFailure { error ->
+                        Timber.tag(TAG).w(error, "Artwork transfer failed for songId=${song.id}")
+                    }
+                }
+
+                // 6. Stream audio via ChannelClient
                 streamFileToWatch(
                     messageEvent.sourceNodeId, request.requestId, song.id,
                     fileInputStream, fileSize,
@@ -808,6 +828,115 @@ class WearCommandReceiver : WearableListenerService() {
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private fun resolveTransferArtworkBytes(song: Song): ByteArray? {
+        if (song.albumId > 0L) {
+            albumArtworkTransferCache[song.albumId]?.let { return it }
+        }
+
+        val bitmap = loadSongAlbumArtBitmapForTransfer(song) ?: return null
+        return try {
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, TRANSFER_ARTWORK_QUALITY, stream)
+            val bytes = stream.toByteArray()
+            if (bytes.isEmpty() || bytes.size > TRANSFER_ARTWORK_MAX_BYTES) {
+                null
+            } else {
+                if (song.albumId > 0L) {
+                    albumArtworkTransferCache[song.albumId] = bytes
+                }
+                bytes
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Failed to encode transfer artwork for songId=${song.id}")
+            null
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun loadSongAlbumArtBitmapForTransfer(song: Song): Bitmap? {
+        val fromUri = song.albumArtUriString
+            ?.takeIf { it.isNotBlank() }
+            ?.let { uriString -> decodeBoundedBitmapFromUri(uriString, TRANSFER_ARTWORK_MAX_DIMENSION) }
+        if (fromUri != null) return fromUri
+
+        val retriever = MediaMetadataRetriever()
+        return try {
+            val file = File(song.path)
+            if (file.exists() && file.canRead()) {
+                retriever.setDataSource(song.path)
+            } else {
+                retriever.setDataSource(this, song.contentUriString.toUri())
+            }
+            val embedded = retriever.embeddedPicture ?: return null
+            decodeBoundedBitmap(embedded, TRANSFER_ARTWORK_MAX_DIMENSION)
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Failed to load transfer artwork for songId=${song.id}")
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    private fun decodeBoundedBitmapFromUri(uriString: String, maxDimension: Int): Bitmap? {
+        val uri = uriString.toUri()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+        } ?: return null
+
+        val srcWidth = bounds.outWidth
+        val srcHeight = bounds.outHeight
+        if (srcWidth <= 0 || srcHeight <= 0) return null
+
+        var sampleSize = 1
+        while (
+            (srcWidth / sampleSize) > maxDimension * 2 ||
+            (srcHeight / sampleSize) > maxDimension * 2
+        ) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inMutable = false
+        }
+
+        return contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, decodeOptions)
+        }
+    }
+
+    private fun decodeBoundedBitmap(data: ByteArray, maxDimension: Int): Bitmap? {
+        if (data.isEmpty()) return null
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+        val srcWidth = bounds.outWidth
+        val srcHeight = bounds.outHeight
+        if (srcWidth <= 0 || srcHeight <= 0) return null
+
+        var sampleSize = 1
+        while (
+            (srcWidth / sampleSize) > maxDimension * 2 ||
+            (srcHeight / sampleSize) > maxDimension * 2
+        ) {
+            sampleSize *= 2
+        }
+
+        return BitmapFactory.decodeByteArray(
+            data,
+            0,
+            data.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+                inMutable = false
+            },
+        )
     }
 
     private fun loadSongAlbumArtBitmap(song: Song): Bitmap? {
@@ -970,6 +1099,41 @@ class WearCommandReceiver : WearableListenerService() {
             } catch (e: Exception) {
                 Timber.tag(TAG).w(e, "Failed to close channel")
             }
+        }
+    }
+
+    /**
+     * Stream album artwork bytes to the watch via a dedicated ChannelClient path.
+     * Stream format: [requestId length][requestId][songId length][songId][artwork bytes]
+     */
+    private suspend fun streamArtworkToWatch(
+        nodeId: String,
+        requestId: String,
+        songId: String,
+        artworkBytes: ByteArray,
+    ) {
+        if (artworkBytes.isEmpty()) return
+        val channelClient = Wearable.getChannelClient(this@WearCommandReceiver)
+        val channel = channelClient.openChannel(nodeId, WearDataPaths.TRANSFER_ARTWORK_CHANNEL).await()
+        try {
+            val outputStream = channelClient.getOutputStream(channel).await()
+            val requestIdBytes = requestId.toByteArray(Charsets.UTF_8)
+            val songIdBytes = songId.toByteArray(Charsets.UTF_8)
+
+            outputStream.write(ByteBuffer.allocate(4).putInt(requestIdBytes.size).array())
+            outputStream.write(requestIdBytes)
+            outputStream.write(ByteBuffer.allocate(4).putInt(songIdBytes.size).array())
+            outputStream.write(songIdBytes)
+            outputStream.write(artworkBytes)
+            outputStream.flush()
+            outputStream.close()
+
+            Timber.tag(TAG).d(
+                "Artwork transfer complete: songId=$songId, bytes=${artworkBytes.size}"
+            )
+        } finally {
+            runCatching { channelClient.close(channel).await() }
+                .onFailure { error -> Timber.tag(TAG).w(error, "Failed to close artwork channel") }
         }
     }
 

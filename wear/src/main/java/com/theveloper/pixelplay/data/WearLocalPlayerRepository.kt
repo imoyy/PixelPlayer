@@ -67,9 +67,13 @@ class WearLocalPlayerRepository @Inject constructor(
     private val _localPaletteSeedArgb = MutableStateFlow<Int?>(null)
     val localPaletteSeedArgb: StateFlow<Int?> = _localPaletteSeedArgb.asStateFlow()
 
+    private val _localAlbumArt = MutableStateFlow<Bitmap?>(null)
+    val localAlbumArt: StateFlow<Bitmap?> = _localAlbumArt.asStateFlow()
+
     private var positionUpdateJob: Job? = null
     private var currentQueueSongsById: Map<String, LocalSongEntity> = emptyMap()
     private var lastPaletteSongId: String = ""
+    private var lastArtworkSongId: String = ""
 
     companion object {
         private const val TAG = "WearLocalPlayer"
@@ -182,8 +186,10 @@ class WearLocalPlayerRepository @Inject constructor(
         _isLocalPlaybackActive.value = false
         _localPlayerState.value = WearLocalPlayerState()
         _localPaletteSeedArgb.value = null
+        _localAlbumArt.value = null
         currentQueueSongsById = emptyMap()
         lastPaletteSongId = ""
+        lastArtworkSongId = ""
         Timber.tag(TAG).d("ExoPlayer released")
     }
 
@@ -200,6 +206,7 @@ class WearLocalPlayerRepository @Inject constructor(
             totalDurationMs = player.duration.coerceAtLeast(0L),
         )
         updatePaletteForSong(currentItem?.mediaId.orEmpty())
+        updateArtworkForSong(currentItem?.mediaId.orEmpty())
     }
 
     private fun startPositionUpdates() {
@@ -255,6 +262,107 @@ class WearLocalPlayerRepository @Inject constructor(
                 _localPaletteSeedArgb.value = extractedSeed
             }
         }
+    }
+
+    private fun updateArtworkForSong(songId: String) {
+        if (songId.isBlank()) {
+            lastArtworkSongId = ""
+            _localAlbumArt.value = null
+            return
+        }
+        if (songId == lastArtworkSongId) return
+        lastArtworkSongId = songId
+
+        val queueSong = currentQueueSongsById[songId]
+        if (queueSong == null) {
+            _localAlbumArt.value = null
+            return
+        }
+
+        scope.launch(Dispatchers.IO) {
+            val bitmap = loadLocalAlbumArtBitmap(queueSong)
+            withContext(Dispatchers.Main) {
+                if (lastArtworkSongId != queueSong.songId) return@withContext
+                _localAlbumArt.value = bitmap
+            }
+        }
+    }
+
+    private fun loadLocalAlbumArtBitmap(song: LocalSongEntity): Bitmap? {
+        val fromStoredArtwork = song.artworkPath
+            ?.takeIf { it.isNotBlank() }
+            ?.let { artworkPath ->
+                decodeBoundedBitmapFromFile(artworkPath, maxDimension = 1024)
+            }
+        if (fromStoredArtwork != null) return fromStoredArtwork
+
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(song.localPath)
+            val embedded = retriever.embeddedPicture ?: return null
+            decodeBoundedBitmapFromBytes(embedded, maxDimension = 1024)
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Failed to load local artwork for songId=${song.songId}")
+            null
+        } finally {
+            runCatching { retriever.release() }
+        }
+    }
+
+    private fun decodeBoundedBitmapFromFile(path: String, maxDimension: Int): Bitmap? {
+        val file = File(path)
+        if (!file.exists() || file.length() <= 0L) return null
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val srcWidth = bounds.outWidth
+        val srcHeight = bounds.outHeight
+        if (srcWidth <= 0 || srcHeight <= 0) return null
+
+        var sampleSize = 1
+        while (
+            (srcWidth / sampleSize) > maxDimension * 2 ||
+            (srcHeight / sampleSize) > maxDimension * 2
+        ) {
+            sampleSize *= 2
+        }
+
+        return BitmapFactory.decodeFile(
+            path,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+                inMutable = false
+            },
+        )
+    }
+
+    private fun decodeBoundedBitmapFromBytes(data: ByteArray, maxDimension: Int): Bitmap? {
+        if (data.isEmpty()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(data, 0, data.size, bounds)
+        val srcWidth = bounds.outWidth
+        val srcHeight = bounds.outHeight
+        if (srcWidth <= 0 || srcHeight <= 0) return null
+
+        var sampleSize = 1
+        while (
+            (srcWidth / sampleSize) > maxDimension * 2 ||
+            (srcHeight / sampleSize) > maxDimension * 2
+        ) {
+            sampleSize *= 2
+        }
+
+        return BitmapFactory.decodeByteArray(
+            data,
+            0,
+            data.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+                inMutable = false
+            },
+        )
     }
 
     private fun extractSeedFromLocalSong(song: LocalSongEntity): Int? {

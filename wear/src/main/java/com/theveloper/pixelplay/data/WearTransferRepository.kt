@@ -80,7 +80,12 @@ class WearTransferRepository @Inject constructor(
         .transform { songs ->
             val (validSongs, staleSongs) = songs.partition { it.hasPlayableLocalFile() }
             if (staleSongs.isNotEmpty()) {
-                staleSongs.forEach { localSongDao.deleteById(it.songId) }
+                staleSongs.forEach { stale ->
+                    stale.artworkPath?.let { artworkPath ->
+                        runCatching { File(artworkPath).delete() }
+                    }
+                    localSongDao.deleteById(stale.songId)
+                }
                 Timber.tag(TAG).w("Removed ${staleSongs.size} stale local song entries from DB")
             }
             emit(validSongs)
@@ -96,8 +101,12 @@ class WearTransferRepository @Inject constructor(
     /** Mapping from songId -> requestId for tracking which song is being transferred */
     private val songToRequestId = ConcurrentHashMap<String, String>()
 
+    /** Artwork bytes received before/while audio transfer: requestId -> bytes */
+    private val pendingArtworkByRequestId = ConcurrentHashMap<String, ByteArray>()
+
     companion object {
         private const val TAG = "WearTransferRepo"
+        private const val ARTWORK_FILE_EXTENSION = "jpg"
     }
 
     /**
@@ -211,6 +220,7 @@ class WearTransferRepository @Inject constructor(
         val extension = MimeTypeMap.getSingleton()
             .getExtensionFromMimeType(metadata.mimeType) ?: "mp3"
         val localFile = File(musicDir, "${metadata.songId}.$extension")
+        val previousSong = localSongDao.getSongById(metadata.songId)
 
         try {
             localFile.outputStream().use { fileOut ->
@@ -230,6 +240,11 @@ class WearTransferRepository @Inject constructor(
                 return
             }
 
+            val artworkPath = consumeAndPersistPendingArtwork(
+                requestId = requestId,
+                songId = metadata.songId,
+            )
+
             // Insert into Room database
             localSongDao.insert(
                 LocalSongEntity(
@@ -244,9 +259,16 @@ class WearTransferRepository @Inject constructor(
                     bitrate = metadata.bitrate,
                     sampleRate = metadata.sampleRate,
                     paletteSeedArgb = metadata.paletteSeedArgb,
+                    artworkPath = artworkPath,
                     localPath = localFile.absolutePath,
                     transferredAt = System.currentTimeMillis(),
                 )
+            )
+
+            cleanupReplacedSongFiles(
+                previousSong = previousSong,
+                currentAudioPath = localFile.absolutePath,
+                currentArtworkPath = artworkPath,
             )
 
             // Clean up transfer state
@@ -270,6 +292,10 @@ class WearTransferRepository @Inject constructor(
         val song = localSongDao.getSongById(songId) ?: return
         val file = File(song.localPath)
         if (file.exists()) file.delete()
+        song.artworkPath?.let { artwork ->
+            val artworkFile = File(artwork)
+            if (artworkFile.exists()) artworkFile.delete()
+        }
         localSongDao.deleteById(songId)
         Timber.tag(TAG).d("Deleted local song: ${song.title}")
     }
@@ -304,7 +330,32 @@ class WearTransferRepository @Inject constructor(
             _activeTransfers.update { it - requestId }
             songToRequestId.remove(state.songId)
             pendingMetadata.remove(requestId)
+            pendingArtworkByRequestId.remove(requestId)
         }
+    }
+
+    /**
+     * Called when artwork bytes arrive over the dedicated artwork channel.
+     * If song row exists, artwork is persisted immediately; otherwise cached until audio finishes.
+     */
+    suspend fun onArtworkReceived(requestId: String, songId: String, artworkBytes: ByteArray) {
+        if (artworkBytes.isEmpty()) return
+
+        val existing = localSongDao.getSongById(songId)
+        if (existing != null) {
+            val artworkPath = persistArtwork(songId, artworkBytes)
+            if (artworkPath != null) {
+                if (existing.artworkPath != null && existing.artworkPath != artworkPath) {
+                    runCatching { File(existing.artworkPath).delete() }
+                }
+                localSongDao.updateArtworkPath(songId, artworkPath)
+                Timber.tag(TAG).d("Artwork updated for existing local song: songId=$songId")
+            }
+            return
+        }
+
+        pendingArtworkByRequestId[requestId] = artworkBytes
+        Timber.tag(TAG).d("Artwork cached for pending transfer: requestId=$requestId")
     }
 
     private fun handleTransferError(requestId: String, songId: String, message: String) {
@@ -322,10 +373,52 @@ class WearTransferRepository @Inject constructor(
         }
         songToRequestId.remove(songId)
         pendingMetadata.remove(requestId)
+        pendingArtworkByRequestId.remove(requestId)
     }
 
     private fun LocalSongEntity.hasPlayableLocalFile(): Boolean {
         val file = File(localPath)
         return file.isFile && file.length() > 0L
+    }
+
+    private fun consumeAndPersistPendingArtwork(requestId: String, songId: String): String? {
+        val artworkBytes = pendingArtworkByRequestId.remove(requestId) ?: return null
+        return persistArtwork(songId, artworkBytes)
+    }
+
+    private fun persistArtwork(songId: String, artworkBytes: ByteArray): String? {
+        return try {
+            val artworkDir = File(application.filesDir, "artwork")
+            if (!artworkDir.exists()) artworkDir.mkdirs()
+            val artworkFile = File(artworkDir, "$songId.$ARTWORK_FILE_EXTENSION")
+            artworkFile.outputStream().use { output ->
+                output.write(artworkBytes)
+                output.flush()
+            }
+            if (artworkFile.length() <= 0L) {
+                artworkFile.delete()
+                null
+            } else {
+                artworkFile.absolutePath
+            }
+        } catch (e: Exception) {
+            Timber.tag(TAG).w(e, "Failed to persist artwork for songId=$songId")
+            null
+        }
+    }
+
+    private fun cleanupReplacedSongFiles(
+        previousSong: LocalSongEntity?,
+        currentAudioPath: String,
+        currentArtworkPath: String?,
+    ) {
+        if (previousSong == null) return
+        if (previousSong.localPath != currentAudioPath) {
+            runCatching { File(previousSong.localPath).delete() }
+        }
+        val oldArtwork = previousSong.artworkPath
+        if (oldArtwork != null && oldArtwork != currentArtworkPath) {
+            runCatching { File(oldArtwork).delete() }
+        }
     }
 }
