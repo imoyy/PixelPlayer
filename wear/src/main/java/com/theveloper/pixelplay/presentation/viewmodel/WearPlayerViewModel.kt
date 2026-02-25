@@ -10,6 +10,7 @@ import com.theveloper.pixelplay.data.WearPlaybackController
 import com.theveloper.pixelplay.data.WearStateRepository
 import com.theveloper.pixelplay.data.WearVolumeRepository
 import com.theveloper.pixelplay.shared.WearPlayerState
+import com.theveloper.pixelplay.shared.WearThemePalette
 import com.theveloper.pixelplay.shared.WearVolumeState
 import kotlinx.coroutines.flow.MutableStateFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -91,6 +92,11 @@ class WearPlayerViewModel @Inject constructor(
     ) { target, localSeed ->
         if (target == WearOutputTarget.WATCH) localSeed else null
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val phoneThemePalette: StateFlow<WearThemePalette?> = playerState
+        .map { it.themePalette }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val isPhoneConnected: StateFlow<Boolean> = stateRepository.isPhoneConnected
     val phoneVolumeState: StateFlow<WearVolumeState> = stateRepository.volumeState
     val watchVolumeState: StateFlow<WearVolumeState> = volumeRepository.watchVolumeState

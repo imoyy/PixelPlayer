@@ -6,9 +6,11 @@ import kotlinx.serialization.Serializable
  * Lightweight DTO representing the current player state, synced from phone to watch
  * via the Wear Data Layer API.
  *
- * This is intentionally a subset of the full PlayerInfo — heavy fields like
- * album art bitmap, queue, lyrics, and theme colors are excluded.
- * Album art is sent as a separate Asset attached to the DataItem.
+ * This is intentionally a subset of the full PlayerInfo. Heavy fields like queue
+ * and lyrics are excluded. Album art is sent separately as an Asset.
+ *
+ * Optional [themePalette] allows the phone to push a ready-to-use palette so
+ * watch and phone can stay visually aligned without recomputing colors on-watch.
  */
 @Serializable
 data class WearPlayerState(
@@ -27,6 +29,8 @@ data class WearPlayerState(
     val volumeLevel: Int = 0,
     /** STREAM_MUSIC max volume level on phone side */
     val volumeMax: Int = 0,
+    /** Palette snapshot generated on phone (optional). */
+    val themePalette: WearThemePalette? = null,
 ) {
     val isEmpty: Boolean
         get() = songId.isEmpty()

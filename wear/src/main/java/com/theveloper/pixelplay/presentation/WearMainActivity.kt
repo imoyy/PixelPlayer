@@ -34,10 +34,12 @@ class WearMainActivity : FragmentActivity(), AmbientModeSupport.AmbientCallbackP
             val playerViewModel: WearPlayerViewModel = hiltViewModel()
             val albumArt by playerViewModel.albumArt.collectAsState()
             val paletteSeedArgb by playerViewModel.paletteSeedArgb.collectAsState()
+            val phoneThemePalette by playerViewModel.phoneThemePalette.collectAsState()
 
             WearPixelPlayTheme(
                 albumArt = albumArt,
                 seedColorArgb = paletteSeedArgb,
+                phoneThemePalette = phoneThemePalette,
             ) {
                 WearNavigation()
             }

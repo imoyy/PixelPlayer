@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Colors
+import com.theveloper.pixelplay.shared.WearThemePalette
 import kotlin.math.max
 import kotlin.math.min
 
@@ -71,10 +72,12 @@ fun WearPalette.radialBackgroundBrush(): Brush = Brush.radialGradient(
 fun WearPixelPlayTheme(
     albumArt: Bitmap? = null,
     seedColorArgb: Int? = null,
+    phoneThemePalette: WearThemePalette? = null,
     content: @Composable () -> Unit,
 ) {
-    val palette = remember(albumArt, seedColorArgb) {
+    val palette = remember(phoneThemePalette, albumArt, seedColorArgb) {
         when {
+            phoneThemePalette != null -> phoneThemePalette.toWearPalette()
             albumArt != null -> buildPaletteFromAlbumArt(albumArt)
             seedColorArgb != null -> buildPaletteFromSeedColor(Color(seedColorArgb))
             else -> DefaultWearPalette
@@ -99,6 +102,26 @@ fun WearPixelPlayTheme(
             content = content,
         )
     }
+}
+
+private fun WearThemePalette.toWearPalette(): WearPalette {
+    return WearPalette(
+        gradientTop = Color(gradientTopArgb),
+        gradientMiddle = Color(gradientMiddleArgb),
+        gradientBottom = Color(gradientBottomArgb),
+        textPrimary = Color(textPrimaryArgb),
+        textSecondary = Color(textSecondaryArgb),
+        textError = Color(textErrorArgb),
+        controlContainer = Color(controlContainerArgb),
+        controlContent = Color(controlContentArgb),
+        controlDisabledContainer = Color(controlDisabledContainerArgb),
+        controlDisabledContent = Color(controlDisabledContentArgb),
+        chipContainer = Color(chipContainerArgb),
+        chipContent = Color(chipContentArgb),
+        favoriteActive = Color(favoriteActiveArgb),
+        shuffleActive = Color(shuffleActiveArgb),
+        repeatActive = Color(repeatActiveArgb),
+    )
 }
 
 private fun buildPaletteFromAlbumArt(bitmap: Bitmap): WearPalette {

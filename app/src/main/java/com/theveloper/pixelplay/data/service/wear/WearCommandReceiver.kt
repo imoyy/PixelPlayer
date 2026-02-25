@@ -539,8 +539,9 @@ class WearCommandReceiver : WearableListenerService() {
             try {
                 val currentIndex = controller.currentMediaItemIndex
                 val count = controller.mediaItemCount
+                val startIndex = if (currentIndex in 0 until count) currentIndex else 0
                 val items = buildList {
-                    for (index in 0 until count) {
+                    for (index in startIndex until count) {
                         val mediaItem = controller.getMediaItemAt(index)
                         val metadata = mediaItem.mediaMetadata
                         val title = metadata.title?.toString()?.takeIf { it.isNotBlank() }

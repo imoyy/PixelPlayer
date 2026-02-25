@@ -254,6 +254,12 @@ private fun AlbumArtPage(
             fallbackSecondary = palette.textSecondary,
         )
     }
+    val contrastOverlay = remember(albumArt, textColors) {
+        deriveAlbumContrastOverlay(
+            albumArt = albumArt,
+            textColors = textColors,
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -301,6 +307,32 @@ private fun AlbumArtPage(
                             0.68f to Color.Transparent,
                             0.86f to Color.Black.copy(alpha = 0.10f),
                             1f to Color.Black.copy(alpha = 0.34f),
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to contrastOverlay.topColor.copy(alpha = contrastOverlay.topAlpha),
+                            contrastOverlay.topFadeEnd to Color.Transparent,
+                            1f to Color.Transparent,
+                        ),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Transparent,
+                            contrastOverlay.bottomFadeStart to Color.Transparent,
+                            1f to contrastOverlay.bottomColor.copy(alpha = contrastOverlay.bottomAlpha),
                         ),
                     ),
                 ),
@@ -396,6 +428,15 @@ private data class AlbumOverlayTextColors(
     val bottomShadow: Shadow,
 )
 
+private data class AlbumContrastOverlay(
+    val topColor: Color,
+    val topAlpha: Float,
+    val topFadeEnd: Float,
+    val bottomColor: Color,
+    val bottomAlpha: Float,
+    val bottomFadeStart: Float,
+)
+
 private fun deriveAlbumOverlayTextColors(
     albumArt: Bitmap?,
     fallbackPrimary: Color,
@@ -473,6 +514,99 @@ private fun deriveAlbumOverlayTextColors(
         clockShadow = clockShadow,
         bottomShadow = bottomShadow,
     )
+}
+
+private fun deriveAlbumContrastOverlay(
+    albumArt: Bitmap?,
+    textColors: AlbumOverlayTextColors,
+): AlbumContrastOverlay {
+    if (albumArt == null || albumArt.width <= 0 || albumArt.height <= 0) {
+        return AlbumContrastOverlay(
+            topColor = Color.Black,
+            topAlpha = 0.30f,
+            topFadeEnd = 0.30f,
+            bottomColor = Color.Black,
+            bottomAlpha = 0.36f,
+            bottomFadeStart = 0.64f,
+        )
+    }
+
+    val topBg = sampleRegionAverageColor(albumArt, startYFraction = 0f, endYFraction = 0.24f)
+    val bottomBg = sampleRegionAverageColor(albumArt, startYFraction = 0.62f, endYFraction = 1f)
+
+    val topBase = if (textColors.clock.luminance() > 0.5f) Color.Black else Color.White
+    val topAlpha = solveScrimAlphaForContrast(
+        textColor = textColors.clock,
+        backgroundColor = topBg,
+        scrimBaseColor = topBase,
+        minContrast = 6.0,
+        extraHeadroom = 0.10f,
+    )
+
+    val bottomBase = if (textColors.title.luminance() > 0.5f) Color.Black else Color.White
+    val bottomTitleAlpha = solveScrimAlphaForContrast(
+        textColor = textColors.title,
+        backgroundColor = bottomBg,
+        scrimBaseColor = bottomBase,
+        minContrast = 6.4,
+        extraHeadroom = 0.10f,
+    )
+    val bottomArtistAlpha = solveScrimAlphaForContrast(
+        textColor = textColors.artist,
+        backgroundColor = bottomBg,
+        scrimBaseColor = bottomBase,
+        minContrast = 5.1,
+        extraHeadroom = 0.08f,
+    )
+
+    return AlbumContrastOverlay(
+        topColor = topBase,
+        topAlpha = topAlpha,
+        topFadeEnd = 0.33f,
+        bottomColor = bottomBase,
+        bottomAlpha = max(bottomTitleAlpha, bottomArtistAlpha),
+        bottomFadeStart = 0.56f,
+    )
+}
+
+private fun solveScrimAlphaForContrast(
+    textColor: Color,
+    backgroundColor: Color,
+    scrimBaseColor: Color,
+    minContrast: Double,
+    extraHeadroom: Float,
+): Float {
+    val opaqueBg = toOpaqueArgb(backgroundColor)
+    val textArgb = textColor.toArgb()
+    val currentContrast = ColorUtils.calculateContrast(textArgb, opaqueBg)
+    if (currentContrast >= minContrast) {
+        return 0f
+    }
+
+    var alpha = 0f
+    while (alpha <= 0.84f) {
+        val scrimArgb = ColorUtils.setAlphaComponent(
+            scrimBaseColor.toArgb(),
+            (alpha * 255f).toInt().coerceIn(0, 255),
+        )
+        val compositedBg = ColorUtils.compositeColors(scrimArgb, opaqueBg)
+        val contrast = ColorUtils.calculateContrast(textArgb, compositedBg)
+        if (contrast >= minContrast) {
+            return (alpha + extraHeadroom).coerceIn(0f, 0.84f)
+        }
+        alpha += 0.03f
+    }
+
+    return 0.84f
+}
+
+private fun toOpaqueArgb(color: Color): Int {
+    val argb = color.toArgb()
+    return if (android.graphics.Color.alpha(argb) >= 255) {
+        argb
+    } else {
+        ColorUtils.compositeColors(argb, Color.Black.toArgb())
+    }
 }
 
 private fun deriveReadableTintedColor(
@@ -949,7 +1083,7 @@ private fun CenterPlayButton(
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
             )
             drawArc(
-                color = palette.controlContainer.copy(alpha = if (enabled) 1f else 0.45f),
+                color = palette.controlContainer.copy(alpha = if (enabled) 1f else 0.95f),
                 startAngle = -90f,
                 sweepAngle = 360f * ringProgress,
                 useCenter = false,

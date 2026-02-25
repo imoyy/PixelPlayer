@@ -4,14 +4,17 @@ import android.app.Application
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
 import android.media.AudioManager
 import android.net.Uri
+import androidx.core.graphics.ColorUtils
 import com.google.android.gms.wearable.Asset
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import com.theveloper.pixelplay.data.model.PlayerInfo
 import com.theveloper.pixelplay.shared.WearDataPaths
 import com.theveloper.pixelplay.shared.WearPlayerState
+import com.theveloper.pixelplay.shared.WearThemePalette
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -103,6 +106,7 @@ class WearStatePublisher @Inject constructor(
             repeatMode = playerInfo.repeatMode,
             volumeLevel = volumeLevel,
             volumeMax = volumeMax,
+            themePalette = buildWearThemePalette(playerInfo),
         )
 
         val stateJson = json.encodeToString(wearState)
@@ -293,5 +297,80 @@ class WearStatePublisher @Inject constructor(
         val resized = Bitmap.createScaledBitmap(decoded, targetWidth, targetHeight, true)
         if (resized !== decoded) decoded.recycle()
         return resized
+    }
+
+    /**
+     * Builds a watch-oriented palette from phone-side theme colors already computed by MusicService.
+     * This avoids re-extracting colors from album art on watch and keeps both UIs aligned.
+     */
+    private fun buildWearThemePalette(playerInfo: PlayerInfo): WearThemePalette? {
+        val colors = playerInfo.themeColors ?: return null
+
+        val baseSurface = colors.darkSurfaceContainer
+        val title = colors.darkTitle
+        val artist = colors.darkArtist
+        val playContainer = colors.darkPlayPauseBackground
+        val playContent = colors.darkPlayPauseIcon
+        val secondaryContainer = colors.darkPrevNextBackground
+        val secondaryContent = colors.darkPrevNextIcon
+
+        val gradientTop = ColorUtils.blendARGB(baseSurface, playContainer, 0.28f)
+        val gradientMiddle = ColorUtils.blendARGB(baseSurface, AndroidColor.BLACK, 0.52f)
+        val gradientBottom = ColorUtils.blendARGB(baseSurface, AndroidColor.BLACK, 0.82f)
+
+        val disabledContainer = ColorUtils.setAlphaComponent(
+            ColorUtils.blendARGB(playContainer, AndroidColor.BLACK, 0.62f),
+            0xF5
+        )
+        val chipContainer = ColorUtils.setAlphaComponent(
+            ColorUtils.blendARGB(secondaryContainer, baseSurface, 0.42f),
+            0x66
+        )
+
+        return WearThemePalette(
+            gradientTopArgb = gradientTop,
+            gradientMiddleArgb = gradientMiddle,
+            gradientBottomArgb = gradientBottom,
+            textPrimaryArgb = ensureReadable(preferredColor = title, backgroundColor = gradientMiddle),
+            textSecondaryArgb = ensureReadable(preferredColor = artist, backgroundColor = gradientBottom),
+            textErrorArgb = 0xFFFFB8C7.toInt(),
+            controlContainerArgb = playContainer,
+            controlContentArgb = ensureReadable(preferredColor = playContent, backgroundColor = playContainer),
+            controlDisabledContainerArgb = disabledContainer,
+            controlDisabledContentArgb = ensureReadable(
+                preferredColor = playContent,
+                backgroundColor = disabledContainer
+            ),
+            chipContainerArgb = chipContainer,
+            chipContentArgb = ensureReadable(preferredColor = secondaryContent, backgroundColor = chipContainer),
+            favoriteActiveArgb = shiftHue(playContainer, 34f),
+            shuffleActiveArgb = shiftHue(playContainer, -72f),
+            repeatActiveArgb = shiftHue(playContainer, -22f),
+        )
+    }
+
+    private fun shiftHue(color: Int, hueShift: Float): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color, hsl)
+        hsl[0] = (hsl[0] + hueShift + 360f) % 360f
+        hsl[1] = (hsl[1] * 1.18f).coerceIn(0.42f, 0.92f)
+        hsl[2] = (hsl[2] + 0.08f).coerceIn(0.34f, 0.78f)
+        return ColorUtils.HSLToColor(hsl)
+    }
+
+    private fun ensureReadable(preferredColor: Int, backgroundColor: Int): Int {
+        val opaqueBackground = if (AndroidColor.alpha(backgroundColor) >= 255) {
+            backgroundColor
+        } else {
+            ColorUtils.compositeColors(backgroundColor, AndroidColor.BLACK)
+        }
+        val preferredContrast = ColorUtils.calculateContrast(preferredColor, opaqueBackground)
+        if (preferredContrast >= 3.0) return preferredColor
+
+        val light = 0xFFF6F2FF.toInt()
+        val dark = 0xFF17141E.toInt()
+        val lightContrast = ColorUtils.calculateContrast(light, opaqueBackground)
+        val darkContrast = ColorUtils.calculateContrast(dark, opaqueBackground)
+        return if (lightContrast >= darkContrast) light else dark
     }
 }
