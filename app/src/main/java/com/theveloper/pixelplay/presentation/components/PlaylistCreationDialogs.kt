@@ -46,7 +46,6 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilterChip
@@ -499,7 +498,10 @@ private fun CreateAiPlaylistContent(
                         shape = CircleShape
                     ) {
                         if (isGenerating) {
-                            LoadingIndicator(modifier = Modifier.height(28.dp))
+                            LoadingIndicator(
+                                modifier = Modifier.height(28.dp),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text("Generating...")
                         } else {
@@ -524,7 +526,7 @@ private fun CreateAiPlaylistContent(
         ) {
             Spacer(modifier = Modifier.height(4.dp))
 
-            HeroAiCard(isGenerating = isGenerating)
+            HeroAiCard()
 
             AiSectionCard(title = "Intent") {
                 OutlinedTextField(
@@ -693,7 +695,7 @@ private fun CreateAiPlaylistContent(
 }
 
 @Composable
-private fun HeroAiCard(isGenerating: Boolean) {
+private fun HeroAiCard() {
     Card(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.92f)
@@ -729,19 +731,11 @@ private fun HeroAiCard(isGenerating: Boolean) {
                     )
                 ) {
                     Row(modifier = Modifier.padding(12.dp)) {
-                        if (isGenerating) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.height(22.dp),
-                                strokeWidth = 2.2.dp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.Rounded.AutoAwesome,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
