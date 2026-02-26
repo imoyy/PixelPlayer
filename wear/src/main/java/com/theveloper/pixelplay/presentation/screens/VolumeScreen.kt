@@ -181,12 +181,6 @@ private fun VolumeValuePill(
 ) {
     val palette = LocalWearPalette.current
     val container = palette.controlContainer.copy(alpha = 0.92f)
-//    val container = Brush.horizontalGradient(
-//        colors = listOf(
-//            palette.controlContainer.copy(alpha = 0.95f),
-//            palette.chipContainer.copy(alpha = 0.92f),
-//        ),
-//    )
     val icon = if (level <= 0) {
         Icons.AutoMirrored.Rounded.VolumeOff
     } else {

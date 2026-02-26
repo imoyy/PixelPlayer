@@ -26,6 +26,7 @@ import com.theveloper.pixelplay.data.preferences.UserPreferencesRepository
 import com.theveloper.pixelplay.data.repository.MusicRepository
 import com.theveloper.pixelplay.data.service.MusicService
 import com.theveloper.pixelplay.data.service.MusicNotificationProvider
+import com.theveloper.pixelplay.data.service.player.DualPlayerEngine
 import com.theveloper.pixelplay.shared.WearBrowseRequest
 import com.theveloper.pixelplay.shared.WearBrowseResponse
 import com.theveloper.pixelplay.shared.WearDataPaths
@@ -71,6 +72,7 @@ class WearCommandReceiver : WearableListenerService() {
 
     @Inject lateinit var musicRepository: MusicRepository
     @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
+    @Inject lateinit var dualPlayerEngine: DualPlayerEngine
 
     private val json = Json { ignoreUnknownKeys = true }
     private var mediaController: MediaController? = null
@@ -323,6 +325,15 @@ class WearCommandReceiver : WearableListenerService() {
 
                 val mediaItems = songs.map { MediaItemBuilder.build(it) }
                 val startIndex = songs.indexOfFirst { it.id == songId }.coerceAtLeast(0)
+                val startSong = songs[startIndex]
+                val cloudReady = ensureStartSongCloudUriResolved(startSong)
+                if (!cloudReady) {
+                    Timber.tag(TAG).w(
+                        "Aborting PLAY_FROM_CONTEXT: unresolved cloud URI for songId=%s",
+                        startSong.id
+                    )
+                    return@launch
+                }
 
                 getOrBuildMediaController { controller ->
                     controller.setMediaItems(mediaItems, startIndex, 0L)
@@ -336,6 +347,40 @@ class WearCommandReceiver : WearableListenerService() {
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Failed to handle PLAY_FROM_CONTEXT")
             }
+        }
+    }
+
+    /**
+     * Mirrors phone-side playback behavior: resolve cloud URIs before ExoPlayer touches them.
+     * This warms DualPlayerEngine.resolvedUriCache so resolveDataSpec can swap URI instantly.
+     *
+     * @return true if URI is ready (or not cloud), false when cloud resolution failed.
+     */
+    private suspend fun ensureStartSongCloudUriResolved(song: Song): Boolean {
+        val originalUri = runCatching { song.contentUriString.toUri() }.getOrNull() ?: return true
+        val scheme = originalUri.scheme?.lowercase()
+        if (scheme != "telegram" && scheme != "netease") return true
+
+        return runCatching {
+            val resolvedUri = dualPlayerEngine.resolveCloudUri(originalUri)
+            if (resolvedUri == originalUri) {
+                Timber.tag(TAG).w(
+                    "Cloud resolve returned original URI for songId=%s (%s)",
+                    song.id,
+                    scheme
+                )
+                false
+            } else {
+                Timber.tag(TAG).d(
+                    "Cloud URI pre-resolved for songId=%s (%s)",
+                    song.id,
+                    scheme
+                )
+                true
+            }
+        }.getOrElse { error ->
+            Timber.tag(TAG).w(error, "Failed to pre-resolve cloud URI for songId=${song.id}")
+            false
         }
     }
 
