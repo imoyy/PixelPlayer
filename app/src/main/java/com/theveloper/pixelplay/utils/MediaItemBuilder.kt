@@ -1,10 +1,12 @@
 package com.theveloper.pixelplay.utils
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.theveloper.pixelplay.data.model.Song
+import java.io.File
 
 object MediaItemBuilder {
     private const val EXTERNAL_MEDIA_ID_PREFIX = "external:"
@@ -26,9 +28,20 @@ object MediaItemBuilder {
     fun build(song: Song): MediaItem {
         return MediaItem.Builder()
             .setMediaId(song.id)
-            .setUri(song.contentUriString.toUri())
+            .setUri(playbackUri(song.contentUriString))
             .setMediaMetadata(buildMediaMetadataForSong(song))
             .build()
+    }
+
+    fun playbackUri(contentUriString: String): Uri {
+        val uri = contentUriString.toUri()
+        // Telegram downloaded files can be stored as absolute paths (without file://).
+        // Normalize them so ExoPlayer always gets a canonical local-file URI.
+        return if (uri.scheme.isNullOrBlank() && contentUriString.startsWith("/")) {
+            Uri.fromFile(File(contentUriString))
+        } else {
+            uri
+        }
     }
 
     private fun buildMediaMetadataForSong(song: Song): MediaMetadata {
