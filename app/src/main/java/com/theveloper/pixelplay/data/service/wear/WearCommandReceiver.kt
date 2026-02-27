@@ -104,7 +104,12 @@ class WearCommandReceiver : WearableListenerService() {
     }
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
-        Timber.tag(TAG).d("Received message on path: ${messageEvent.path}")
+        Timber.tag(TAG).d(
+            "Received message path=%s sourceNodeId=%s bytes=%d",
+            messageEvent.path,
+            messageEvent.sourceNodeId,
+            messageEvent.data.size
+        )
 
         when (messageEvent.path) {
             WearDataPaths.PLAYBACK_COMMAND -> handlePlaybackCommand(messageEvent)

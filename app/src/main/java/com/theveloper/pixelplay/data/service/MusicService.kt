@@ -592,6 +592,7 @@ class MusicService : MediaLibraryService() {
         }
         setMediaNotificationProvider(localOnlyProvider)
         mediaSession?.let { refreshMediaSessionUi(it) }
+        requestWidgetFullUpdate(force = true)
 
         serviceScope.launch {
             userPreferencesRepository.favoriteSongIdsFlow.collect { ids ->
