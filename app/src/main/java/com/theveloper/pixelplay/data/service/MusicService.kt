@@ -113,6 +113,7 @@ class MusicService : MediaLibraryService() {
 
     private var favoriteSongIds = emptySet<String>()
     private var mediaSession: MediaLibraryService.MediaLibrarySession? = null
+    private val controllerLastBrowsedParent = mutableMapOf<String, String>()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var keepPlayingInBackground = true
     private var isManualShuffleEnabled = false
@@ -154,6 +155,12 @@ class MusicService : MediaLibraryService() {
             "node",
             "remote_device",
         )
+        private const val AUTO_CONTEXT_RECENT = "recent"
+        private const val AUTO_CONTEXT_FAVORITES = "favorites"
+        private const val AUTO_CONTEXT_ALL_SONGS = "all_songs"
+        private const val AUTO_CONTEXT_ALBUM = "album"
+        private const val AUTO_CONTEXT_ARTIST = "artist"
+        private const val AUTO_CONTEXT_PLAYLIST = "playlist"
     }
 
     override fun onCreate() {
@@ -318,6 +325,11 @@ class MusicService : MediaLibraryService() {
                 )
             }
 
+            override fun onDisconnected(session: MediaSession, controller: MediaSession.ControllerInfo) {
+                clearLastBrowsedParent(controller)
+                super.onDisconnected(session, controller)
+            }
+
             override fun onCustomCommand(
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo,
@@ -439,6 +451,7 @@ class MusicService : MediaLibraryService() {
             ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
                 return serviceScope.future {
                     try {
+                        rememberLastBrowsedParent(browser, parentId)
                         val children = autoMediaBrowseTree.getChildren(parentId, page, pageSize)
                         LibraryResult.ofItemList(children, params)
                     } catch (e: Exception) {
@@ -512,16 +525,47 @@ class MusicService : MediaLibraryService() {
                 mediaItems: MutableList<MediaItem>
             ): ListenableFuture<MutableList<MediaItem>> {
                 return serviceScope.future {
-                    val songIds = mediaItems.map { it.mediaId }
-                    // Batch resolve songs from repository
-                    val songs = musicRepository.getSongsByIds(songIds).first()
-                    val songMap = songs.associateBy { it.id }
+                    if (mediaItems.size == 1) {
+                        resolveContextQueueForRequestedItem(mediaItems.first(), controller)?.let { queue ->
+                            return@future queue.mediaItems
+                        }
+                    }
+                    resolveMediaItemsByIds(mediaItems)
+                }
+            }
 
-                    mediaItems.map { requestedItem ->
-                        songMap[requestedItem.mediaId]?.let { song ->
-                            MediaItemBuilder.build(song)
-                        } ?: requestedItem
-                    }.toMutableList()
+            override fun onSetMediaItems(
+                mediaSession: MediaSession,
+                controller: MediaSession.ControllerInfo,
+                mediaItems: MutableList<MediaItem>,
+                startIndex: Int,
+                startPositionMs: Long
+            ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                return serviceScope.future {
+                    val requestedIndex = startIndex.coerceIn(0, (mediaItems.size - 1).coerceAtLeast(0))
+                    val requestedItem = mediaItems.getOrNull(requestedIndex)
+
+                    val contextQueue = requestedItem?.let {
+                        resolveContextQueueForRequestedItem(it, controller)
+                    }
+                    if (contextQueue != null) {
+                        return@future MediaSession.MediaItemsWithStartPosition(
+                            contextQueue.mediaItems,
+                            contextQueue.startIndex,
+                            startPositionMs
+                        )
+                    }
+
+                    val resolvedItems = resolveMediaItemsByIds(mediaItems)
+                    val safeStartIndex = requestedIndex.coerceIn(
+                        0,
+                        (resolvedItems.size - 1).coerceAtLeast(0)
+                    )
+                    MediaSession.MediaItemsWithStartPosition(
+                        resolvedItems,
+                        safeStartIndex,
+                        startPositionMs
+                    )
                 }
             }
         }
@@ -1371,8 +1415,117 @@ class MusicService : MediaLibraryService() {
         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
     }
 
+    private data class ContextQueueResolution(
+        val mediaItems: MutableList<MediaItem>,
+        val startIndex: Int
+    )
+
+    private fun controllerKey(controller: MediaSession.ControllerInfo): String {
+        return "${controller.packageName}:${controller.uid}"
+    }
+
+    private fun rememberLastBrowsedParent(controller: MediaSession.ControllerInfo, parentId: String) {
+        synchronized(controllerLastBrowsedParent) {
+            controllerLastBrowsedParent[controllerKey(controller)] = parentId
+        }
+    }
+
+    private fun getLastBrowsedParent(controller: MediaSession.ControllerInfo): String? {
+        return synchronized(controllerLastBrowsedParent) {
+            controllerLastBrowsedParent[controllerKey(controller)]
+        }
+    }
+
+    private fun clearLastBrowsedParent(controller: MediaSession.ControllerInfo) {
+        synchronized(controllerLastBrowsedParent) {
+            controllerLastBrowsedParent.remove(controllerKey(controller))
+        }
+    }
+
+    private suspend fun resolveContextQueueForRequestedItem(
+        requestedItem: MediaItem,
+        controller: MediaSession.ControllerInfo
+    ): ContextQueueResolution? {
+        var contextType = requestedItem.mediaMetadata.extras
+            ?.getString(AutoMediaBrowseTree.CONTEXT_TYPE_EXTRA)
+        var contextId = requestedItem.mediaMetadata.extras
+            ?.getString(AutoMediaBrowseTree.CONTEXT_ID_EXTRA)
+
+        if (contextType.isNullOrBlank()) {
+            val parentId = requestedItem.mediaMetadata.extras
+                ?.getString(AutoMediaBrowseTree.CONTEXT_PARENT_ID_EXTRA)
+                ?: getLastBrowsedParent(controller)
+            val parentContext = parentId?.let { resolveAutoContextFromParentId(it) }
+            contextType = parentContext?.first
+            contextId = parentContext?.second
+        }
+
+        if (contextType.isNullOrBlank()) {
+            return null
+        }
+
+        val queueSongs = autoMediaBrowseTree.getSongsForContext(contextType, contextId)
+        if (queueSongs.isEmpty()) {
+            return null
+        }
+
+        val startIndex = queueSongs.indexOfFirst { it.id == requestedItem.mediaId }
+        if (startIndex < 0) {
+            return null
+        }
+
+        val queueMediaItems = queueSongs.map { song ->
+            MediaItemBuilder.build(song)
+        }.toMutableList()
+
+        return ContextQueueResolution(
+            mediaItems = queueMediaItems,
+            startIndex = startIndex
+        )
+    }
+
+    private suspend fun resolveMediaItemsByIds(requestedItems: List<MediaItem>): MutableList<MediaItem> {
+        val songIds = requestedItems.map { it.mediaId }
+        val songs = musicRepository.getSongsByIds(songIds).first()
+        val songMap = songs.associateBy { it.id }
+
+        return requestedItems.map { requestedItem ->
+            songMap[requestedItem.mediaId]?.let { song ->
+                MediaItemBuilder.build(song)
+            } ?: requestedItem
+        }.toMutableList()
+    }
+
+    private fun resolveAutoContextFromParentId(parentId: String): Pair<String, String?>? {
+        return when {
+            parentId == AutoMediaBrowseTree.RECENT_ID -> AUTO_CONTEXT_RECENT to null
+            parentId == AutoMediaBrowseTree.FAVORITES_ID -> AUTO_CONTEXT_FAVORITES to null
+            parentId == AutoMediaBrowseTree.SONGS_ID -> AUTO_CONTEXT_ALL_SONGS to null
+            parentId.startsWith(AutoMediaBrowseTree.ALBUM_PREFIX) -> {
+                AUTO_CONTEXT_ALBUM to parentId.removePrefix(AutoMediaBrowseTree.ALBUM_PREFIX)
+            }
+            parentId.startsWith(AutoMediaBrowseTree.ARTIST_PREFIX) -> {
+                AUTO_CONTEXT_ARTIST to parentId.removePrefix(AutoMediaBrowseTree.ARTIST_PREFIX)
+            }
+            parentId.startsWith(AutoMediaBrowseTree.PLAYLIST_PREFIX) -> {
+                AUTO_CONTEXT_PLAYLIST to parentId.removePrefix(AutoMediaBrowseTree.PLAYLIST_PREFIX)
+            }
+            else -> null
+        }
+    }
+
     private fun buildMediaButtonPreferences(session: MediaSession): List<CommandButton> {
         val player = session.player
+        val previousButton = CommandButton.Builder(CommandButton.ICON_PREVIOUS)
+            .setDisplayName("Previous")
+            .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            .build()
+
+        val nextButton = CommandButton.Builder(CommandButton.ICON_NEXT)
+            .setDisplayName("Next")
+            .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            .build()
+
         val songId = player.currentMediaItem?.mediaId
         val isFavorite = isSongFavorite(songId)
         val likeButton = CommandButton.Builder(
@@ -1406,7 +1559,7 @@ class MusicService : MediaLibraryService() {
             .setSessionCommand(SessionCommand(MusicNotificationProvider.CUSTOM_COMMAND_CYCLE_REPEAT_MODE, Bundle.EMPTY))
             .build()
 
-        return listOf(likeButton, shuffleButton, repeatButton)
+        return listOf(previousButton, nextButton, likeButton, shuffleButton, repeatButton)
     }
 
     // ------------------------

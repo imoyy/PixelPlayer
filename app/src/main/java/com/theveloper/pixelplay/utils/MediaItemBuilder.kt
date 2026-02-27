@@ -11,6 +11,13 @@ import java.io.File
 object MediaItemBuilder {
     private const val EXTERNAL_MEDIA_ID_PREFIX = "external:"
     private const val EXTERNAL_EXTRA_PREFIX = "com.theveloper.pixelplay.external."
+    private val SUPPORTED_ARTWORK_SCHEMES = setOf(
+        "content",
+        "file",
+        "android.resource",
+        "http",
+        "https",
+    )
     const val EXTERNAL_EXTRA_FLAG = EXTERNAL_EXTRA_PREFIX + "FLAG"
     const val EXTERNAL_EXTRA_ALBUM = EXTERNAL_EXTRA_PREFIX + "ALBUM"
     const val EXTERNAL_EXTRA_DURATION = EXTERNAL_EXTRA_PREFIX + "DURATION"
@@ -44,13 +51,35 @@ object MediaItemBuilder {
         }
     }
 
+    /**
+     * Artwork URIs are surfaced to external controllers (Android Auto, widgets, etc.).
+     * Keep only schemes that these surfaces can usually resolve, and normalize raw paths.
+     */
+    fun artworkUri(rawArtworkUri: String?): Uri? {
+        if (rawArtworkUri.isNullOrBlank()) {
+            return null
+        }
+
+        if (rawArtworkUri.startsWith("/")) {
+            return Uri.fromFile(File(rawArtworkUri))
+        }
+
+        val uri = rawArtworkUri.toUri()
+        val scheme = uri.scheme?.lowercase()
+        return if (scheme != null && scheme in SUPPORTED_ARTWORK_SCHEMES) {
+            uri
+        } else {
+            null
+        }
+    }
+
     private fun buildMediaMetadataForSong(song: Song): MediaMetadata {
         val metadataBuilder = MediaMetadata.Builder()
             .setTitle(song.title)
             .setArtist(song.displayArtist)
             .setAlbumTitle(song.album)
 
-        song.albumArtUriString?.toUri()?.let { artworkUri ->
+        artworkUri(song.albumArtUriString)?.let { artworkUri ->
             metadataBuilder.setArtworkUri(artworkUri)
         }
 
