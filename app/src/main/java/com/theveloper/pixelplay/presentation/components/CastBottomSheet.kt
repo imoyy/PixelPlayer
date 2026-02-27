@@ -539,7 +539,7 @@ private fun CastSheetContent(
     onTurnOnWifi: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRefresh: () -> Unit,
-    startWithControls: Boolean = false
+    startWithControls: Boolean = true
 ) {
     val allConnectivityOff = !state.wifiEnabled && !state.isBluetoothEnabled
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
