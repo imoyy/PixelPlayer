@@ -1,0 +1,49 @@
+name: Release Latest Commit
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Phone debug APK
+        run: ./gradlew :app:assembleDebug
+
+      - name: Build Wear OS debug APK
+        run: ./gradlew :wear:assembleDebug
+
+      - name: Publish release from latest commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME=latest
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release delete "$TAG_NAME" --yes --cleanup-tag
+          fi
+
+          gh release create "$TAG_NAME" \
+            app/build/outputs/apk/debug/*.apk \
+            wear/build/outputs/apk/debug/*.apk \
+            --target "${GITHUB_SHA}" \
+            --title "Latest commit $(git rev-parse --short HEAD)" \
+            --notes "Automated release for commit ${GITHUB_SHA}."
