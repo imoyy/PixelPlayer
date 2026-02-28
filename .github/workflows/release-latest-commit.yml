@@ -37,9 +37,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME=latest
-          PHONE_APK=app/build/outputs/apk/release/app-release.apk
+          PHONE_APKS=(app/build/outputs/apk/release/*.apk)
           WEAR_APK=wear/build/outputs/apk/debug/wear-debug.apk
-          test -f "$PHONE_APK" || { echo "Error: Phone APK not found at $PHONE_APK"; exit 1; }
+          test -f "${PHONE_APKS[0]}" || { echo "Error: Phone APK not found at app/build/outputs/apk/release/*.apk"; exit 1; }
           test -f "$WEAR_APK" || { echo "Error: Wear APK not found at $WEAR_APK"; exit 1; }
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
@@ -47,7 +47,7 @@ jobs:
           fi
 
           gh release create "$TAG_NAME" \
-            "$PHONE_APK" \
+            "${PHONE_APKS[@]}" \
             "$WEAR_APK" \
             --target "${GITHUB_SHA}" \
             --title "Latest commit ${GITHUB_SHA:0:7}" \
