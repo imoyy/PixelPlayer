@@ -37,6 +37,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           TAG_NAME=latest
+          ls app/build/outputs/apk/debug/*.apk
+          ls wear/build/outputs/apk/debug/*.apk
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release delete "$TAG_NAME" --yes --cleanup-tag
           fi
@@ -45,5 +48,5 @@ jobs:
             app/build/outputs/apk/debug/*.apk \
             wear/build/outputs/apk/debug/*.apk \
             --target "${GITHUB_SHA}" \
-            --title "Latest commit $(git rev-parse --short HEAD)" \
+            --title "Latest commit ${GITHUB_SHA:0:7}" \
             --notes "Automated release for commit ${GITHUB_SHA}."
