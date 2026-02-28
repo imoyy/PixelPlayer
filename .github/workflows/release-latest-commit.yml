@@ -37,10 +37,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG_NAME=latest
+          shopt -s nullglob
           PHONE_APKS=(app/build/outputs/apk/release/*.apk)
           WEAR_APK=wear/build/outputs/apk/debug/wear-debug.apk
-          test -f "${PHONE_APKS[0]}" || { echo "Error: Phone APK not found at app/build/outputs/apk/release/*.apk"; exit 1; }
+          test "${#PHONE_APKS[@]}" -gt 0 || { echo "Error: Phone APK not found at app/build/outputs/apk/release/*.apk"; exit 1; }
           test -f "$WEAR_APK" || { echo "Error: Wear APK not found at $WEAR_APK"; exit 1; }
+          shopt -u nullglob
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release delete "$TAG_NAME" --yes --cleanup-tag
