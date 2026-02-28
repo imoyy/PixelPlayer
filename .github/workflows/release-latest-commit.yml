@@ -27,7 +27,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Phone release APK
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:assembleRelease --stacktrace --info
 
       - name: Build Wear OS debug APK
         run: ./gradlew :wear:assembleDebug
