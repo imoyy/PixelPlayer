@@ -40,6 +40,16 @@ jobs:
           shopt -s nullglob
           PHONE_APKS=(app/build/outputs/apk/release/*.apk)
           WEAR_APK=wear/build/outputs/apk/debug/wear-debug.apk
+          echo "========== APK OUTPUT DIAGNOSTICS BEGIN =========="
+          echo "Working directory: $(pwd)"
+          echo "Listing app/build/outputs/apk:"
+          ls -lah app/build/outputs/apk || true
+          echo "Listing app/build/outputs/apk/release:"
+          ls -lah app/build/outputs/apk/release || true
+          echo "Matched PHONE_APKS (${#PHONE_APKS[@]}):"
+          printf '%s\n' "${PHONE_APKS[@]}"
+          echo "Wear APK path: $WEAR_APK"
+          echo "========== APK OUTPUT DIAGNOSTICS END =========="
           test "${#PHONE_APKS[@]}" -gt 0 || { echo "Error: Phone APK not found at app/build/outputs/apk/release/*.apk"; exit 1; }
           test -f "$WEAR_APK" || { echo "Error: Wear APK not found at $WEAR_APK"; exit 1; }
           shopt -u nullglob
@@ -48,9 +58,16 @@ jobs:
             gh release delete "$TAG_NAME" --yes --cleanup-tag
           fi
 
-          gh release create "$TAG_NAME" \
+          if ! gh release create "$TAG_NAME" \
             "${PHONE_APKS[@]}" \
             "$WEAR_APK" \
             --target "${GITHUB_SHA}" \
             --title "Latest commit ${GITHUB_SHA:0:7}" \
-            --notes "Automated release for commit ${GITHUB_SHA}."
+            --notes "Automated release for commit ${GITHUB_SHA}."; then
+            echo "========== RELEASE API DIAGNOSTICS BEGIN =========="
+            echo "Failed to create release in $GITHUB_REPOSITORY as actor $GITHUB_ACTOR"
+            echo "This often means GITHUB_TOKEN cannot write releases in current workflow context."
+            gh auth status || true
+            echo "========== RELEASE API DIAGNOSTICS END =========="
+            exit 1
+          fi
