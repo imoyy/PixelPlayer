@@ -31,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -74,6 +75,7 @@ fun MoreScreen(
     val playerState by playerViewModel.playerState.collectAsState()
     val isPhoneConnected by playerViewModel.isPhoneConnected.collectAsState()
     val isWatchOutputSelected by playerViewModel.isWatchOutputSelected.collectAsState()
+    val canCurrentSongBeFavorited by playerViewModel.canCurrentSongBeFavorited.collectAsState()
     val queueState by browseViewModel.uiState.collectAsState()
     val downloadedSongIds by downloadsViewModel.downloadedSongIds.collectAsState()
     val activeTransfers by downloadsViewModel.activeTransfers.collectAsState()
@@ -83,10 +85,27 @@ fun MoreScreen(
             browseViewModel.loadItems(WearBrowseRequest.QUEUE)
         }
     }
+    LaunchedEffect(
+        isWatchOutputSelected,
+        isPhoneConnected,
+        canCurrentSongBeFavorited,
+        playerState.songId,
+    ) {
+        if (isWatchOutputSelected && isPhoneConnected && canCurrentSongBeFavorited) {
+            playerViewModel.refreshCurrentSongFavoriteState()
+        }
+    }
 
     val queueItems = (queueState as? BrowseUiState.Success)?.items.orEmpty()
     val upNextTitle = queueItems.drop(1).firstOrNull()?.title ?: "Nothing queued"
     val currentSongId = playerState.songId
+    val favoriteActionEnabled = !playerState.isEmpty && when {
+        isWatchOutputSelected -> canCurrentSongBeFavorited
+        else -> isPhoneConnected && canCurrentSongBeFavorited
+    }
+    val playbackModeActionsEnabled = !playerState.isEmpty && (
+        isWatchOutputSelected || isPhoneConnected
+    )
     val isCurrentSongDownloaded = currentSongId.isNotBlank() && downloadedSongIds.contains(currentSongId)
     val isCurrentSongTransferring = activeTransfers.values.any {
         it.songId == currentSongId && it.status == WearTransferProgress.STATUS_TRANSFERRING
@@ -140,7 +159,9 @@ fun MoreScreen(
                     isFavorite = playerState.isFavorite,
                     isShuffleEnabled = playerState.isShuffleEnabled,
                     repeatMode = playerState.repeatMode,
-                    enabled = isPhoneConnected && !isWatchOutputSelected && !playerState.isEmpty,
+                    favoriteEnabled = favoriteActionEnabled,
+                    shuffleEnabled = playbackModeActionsEnabled,
+                    repeatEnabled = playbackModeActionsEnabled,
                     onToggleFavorite = playerViewModel::toggleFavorite,
                     onToggleShuffle = playerViewModel::toggleShuffle,
                     onCycleRepeat = playerViewModel::cycleRepeat,
@@ -226,7 +247,9 @@ private fun MoreQuickActionsRow(
     isFavorite: Boolean,
     isShuffleEnabled: Boolean,
     repeatMode: Int,
-    enabled: Boolean,
+    favoriteEnabled: Boolean,
+    shuffleEnabled: Boolean,
+    repeatEnabled: Boolean,
     onToggleFavorite: () -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
@@ -245,7 +268,7 @@ private fun MoreQuickActionsRow(
             icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
             active = isFavorite,
             activeColor = palette.favoriteActive,
-            enabled = enabled,
+            enabled = favoriteEnabled,
             onClick = onToggleFavorite,
             contentDescription = "Like",
         )
@@ -254,7 +277,7 @@ private fun MoreQuickActionsRow(
             icon = Icons.Rounded.Shuffle,
             active = isShuffleEnabled,
             activeColor = palette.shuffleActive,
-            enabled = enabled,
+            enabled = shuffleEnabled,
             onClick = onToggleShuffle,
             contentDescription = "Shuffle",
         )
@@ -263,7 +286,7 @@ private fun MoreQuickActionsRow(
             icon = if (repeatMode == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
             active = repeatMode != 0,
             activeColor = palette.repeatActive,
-            enabled = enabled,
+            enabled = repeatEnabled,
             onClick = onCycleRepeat,
             contentDescription = "Repeat",
         )
@@ -304,6 +327,7 @@ private fun MoreQuickActionButton(
     Box(
         modifier = modifier
             .height(48.dp)
+            .clip(CircleShape)
             .background(container, CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,

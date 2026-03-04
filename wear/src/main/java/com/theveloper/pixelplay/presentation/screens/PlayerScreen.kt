@@ -47,6 +47,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
@@ -88,8 +90,11 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
 import androidx.wear.compose.foundation.pager.HorizontalPager
 import androidx.wear.compose.foundation.pager.rememberPagerState
+import androidx.wear.compose.foundation.requestFocusOnHierarchyActive
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
@@ -98,17 +103,22 @@ import androidx.wear.compose.material3.EdgeButton
 import androidx.wear.compose.material3.EdgeButtonSize
 import androidx.wear.compose.material3.HorizontalPageIndicator as M3HorizontalPageIndicator
 import androidx.wear.compose.material3.Icon as M3Icon
+import com.google.android.horologist.audio.ui.VolumeUiState
+import com.google.android.horologist.audio.ui.volumeRotaryBehavior
 import com.google.android.horologist.compose.layout.ScalingLazyColumn
 import com.google.android.horologist.compose.layout.rememberResponsiveColumnState
 import com.theveloper.pixelplay.R
 import com.theveloper.pixelplay.presentation.components.AlwaysOnScalingPositionIndicator
+import com.theveloper.pixelplay.presentation.components.CurvedVolumeIndicator
 import com.theveloper.pixelplay.presentation.components.outputRouteIcon
 import com.theveloper.pixelplay.presentation.components.WearTopTimeText
 import com.theveloper.pixelplay.presentation.shapes.RoundedStarShape
 import com.theveloper.pixelplay.presentation.theme.LocalWearPalette
 import com.theveloper.pixelplay.presentation.theme.radialBackgroundBrush
+import com.theveloper.pixelplay.presentation.theme.surfaceContainerColor
 import com.theveloper.pixelplay.presentation.viewmodel.WearPlayerViewModel
 import com.theveloper.pixelplay.shared.WearPlayerState
+import com.theveloper.pixelplay.shared.WearVolumeState
 import androidx.core.graphics.ColorUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -133,6 +143,7 @@ fun PlayerScreen(
     val isPhoneConnected by viewModel.isPhoneConnected.collectAsState()
     val isWatchOutputSelected by viewModel.isWatchOutputSelected.collectAsState()
     val activeOutputRouteType by viewModel.activeOutputRouteType.collectAsState()
+    val activeVolumeState by viewModel.activeVolumeState.collectAsState()
     val albumArt by viewModel.albumArt.collectAsState()
 
     PlayerContent(
@@ -140,9 +151,11 @@ fun PlayerScreen(
         albumArt = albumArt,
         isPhoneConnected = isPhoneConnected,
         isWatchOutputSelected = isWatchOutputSelected,
+        activeVolumeState = activeVolumeState,
         onTogglePlayPause = viewModel::togglePlayPause,
         onNext = viewModel::next,
         onPrevious = viewModel::previous,
+        onSetActiveVolume = viewModel::setActiveVolume,
         activeOutputRouteType = activeOutputRouteType,
         onBrowseCategoryClick = onBrowseCategoryClick,
         onVolumeClick = onVolumeClick,
@@ -158,9 +171,11 @@ private fun PlayerContent(
     albumArt: Bitmap?,
     isPhoneConnected: Boolean,
     isWatchOutputSelected: Boolean = false,
+    activeVolumeState: WearVolumeState,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    onSetActiveVolume: (Int) -> Unit,
     activeOutputRouteType: String,
     onBrowseCategoryClick: (browseType: String, title: String) -> Unit,
     onVolumeClick: () -> Unit,
@@ -195,9 +210,11 @@ private fun PlayerContent(
                         isCurrentPage = pagerState.currentPage == 0,
                         isPhoneConnected = isPhoneConnected,
                         isWatchOutputSelected = isWatchOutputSelected,
+                        activeVolumeState = activeVolumeState,
                         onTogglePlayPause = onTogglePlayPause,
                         onNext = onNext,
                         onPrevious = onPrevious,
+                        onSetActiveVolume = onSetActiveVolume,
                         activeOutputRouteType = activeOutputRouteType,
                         onVolumeClick = onVolumeClick,
                         onOutputClick = onOutputClick,
@@ -238,9 +255,11 @@ private fun PlayerMainPageHost(
     isCurrentPage: Boolean,
     isPhoneConnected: Boolean,
     isWatchOutputSelected: Boolean,
+    activeVolumeState: WearVolumeState,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    onSetActiveVolume: (Int) -> Unit,
     activeOutputRouteType: String,
     onVolumeClick: () -> Unit,
     onOutputClick: () -> Unit,
@@ -302,9 +321,12 @@ private fun PlayerMainPageHost(
                 state = state,
                 isPhoneConnected = isPhoneConnected,
                 isWatchOutputSelected = isWatchOutputSelected,
+                activeVolumeState = activeVolumeState,
                 onTogglePlayPause = onTogglePlayPause,
                 onNext = onNext,
                 onPrevious = onPrevious,
+                onSetActiveVolume = onSetActiveVolume,
+                rotaryEnabled = isCurrentPage && albumRevealProgress <= 0.01f,
                 activeOutputRouteType = activeOutputRouteType,
                 onVolumeClick = onVolumeClick,
                 onOutputClick = onOutputClick,
@@ -951,13 +973,17 @@ private fun deriveClockTintFromAlbumArt(albumArt: Bitmap?, fallback: Color): Col
 }
 
 @Composable
+@OptIn(ExperimentalWearFoundationApi::class)
 private fun MainPlayerPage(
     state: WearPlayerState,
     isPhoneConnected: Boolean,
     isWatchOutputSelected: Boolean = false,
+    activeVolumeState: WearVolumeState,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    onSetActiveVolume: (Int) -> Unit,
+    rotaryEnabled: Boolean,
     activeOutputRouteType: String,
     onVolumeClick: () -> Unit,
     onOutputClick: () -> Unit,
@@ -967,6 +993,7 @@ private fun MainPlayerPage(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalWearPalette.current
+    val volumeEnabled = isPhoneConnected || isWatchOutputSelected
     val columnState = rememberResponsiveColumnState(
         contentPadding = {
             PaddingValues(
@@ -1015,11 +1042,60 @@ private fun MainPlayerPage(
         animationSpec = tween(durationMillis = 220),
         label = "queueShortcutReveal",
     )
+    val rotaryFocusRequester = remember { FocusRequester() }
+    val rotaryVolumeUiState = remember(activeVolumeState.level, activeVolumeState.max) {
+        VolumeUiState(
+            current = activeVolumeState.level.coerceAtLeast(0),
+            max = activeVolumeState.max.coerceAtLeast(0),
+            min = 0,
+        )
+    }
+    var showVolumeOverlay by remember { mutableStateOf(false) }
+    var volumeOverlayInteractionTick by remember { mutableIntStateOf(0) }
+    val volumeProgress = if (activeVolumeState.max > 0) {
+        (activeVolumeState.level.toFloat() / activeVolumeState.max.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    LaunchedEffect(rotaryEnabled) {
+        if (!rotaryEnabled) {
+            showVolumeOverlay = false
+        }
+    }
+    LaunchedEffect(volumeOverlayInteractionTick, rotaryEnabled) {
+        if (!rotaryEnabled || volumeOverlayInteractionTick == 0) return@LaunchedEffect
+        showVolumeOverlay = true
+        delay(2_000L)
+        showVolumeOverlay = false
+    }
     LaunchedEffect(queueShortcutReveal) {
         onQueueShortcutRevealChanged(queueShortcutReveal)
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    val rotaryModifier = if (rotaryEnabled && volumeEnabled && activeVolumeState.max > 0) {
+        Modifier
+            .requestFocusOnHierarchyActive()
+            .rotaryScrollable(
+                behavior = volumeRotaryBehavior(
+                    volumeUiStateProvider = { rotaryVolumeUiState },
+                    onRotaryVolumeInput = { newVolume ->
+                        showVolumeOverlay = true
+                        volumeOverlayInteractionTick++
+                        onSetActiveVolume(newVolume)
+                    },
+                ),
+                focusRequester = rotaryFocusRequester,
+            )
+    } else {
+        Modifier
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .then(rotaryModifier)
+    ) {
         ScalingLazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -1052,14 +1128,14 @@ private fun MainPlayerPage(
 
             item {
                 SecondaryControlsRow(
-                    volumeEnabled = isPhoneConnected || isWatchOutputSelected,
-                    deviceEnabled = isPhoneConnected || isWatchOutputSelected,
+                    volumeEnabled = volumeEnabled,
+                    deviceEnabled = volumeEnabled,
                     deviceRouteType = if (isWatchOutputSelected) {
                         com.theveloper.pixelplay.shared.WearVolumeState.ROUTE_TYPE_WATCH
                     } else {
                         activeOutputRouteType
                     },
-                    moreEnabled = true,
+                    moreEnabled = !state.isEmpty,
                     onVolumeClick = onVolumeClick,
                     onOutputClick = onOutputClick,
                     onMoreClick = onMoreClick,
@@ -1069,6 +1145,14 @@ private fun MainPlayerPage(
 
             item { Spacer(modifier = Modifier.height(50.dp)) }
         }
+
+        PlayerCrownVolumeIndicator(
+            progress = volumeProgress,
+            visible = showVolumeOverlay,
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(2f),
+        )
 
         BottomQueueShortcut(
             revealProgress = queueShortcutReveal,
@@ -1115,6 +1199,47 @@ private fun rememberLivePositionMs(state: WearPlayerState): androidx.compose.run
             if (next >= safeDuration) break
             delay(250L)
         }
+    }
+}
+
+@Composable
+private fun PlayerCrownVolumeIndicator(
+    progress: Float,
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalWearPalette.current
+    val overlayAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = if (visible) 180 else 220),
+        label = "playerVolumeOverlayAlpha",
+    )
+    val overlayScale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.96f,
+        animationSpec = tween(durationMillis = if (visible) 180 else 220),
+        label = "playerVolumeOverlayScale",
+    )
+
+    if (overlayAlpha <= 0.01f && !visible) return
+
+    Box(
+        modifier = modifier.graphicsLayer {
+            alpha = overlayAlpha
+            scaleX = overlayScale
+            scaleY = overlayScale
+            transformOrigin = TransformOrigin(0f, 0.5f)
+        }
+    ) {
+        CurvedVolumeIndicator(
+            progress = progress,
+            modifier = Modifier.fillMaxSize(),
+            startAngle = 144f,
+            sweepAngle = 72f,
+            strokeWidth = 4.dp,
+            inset = 10.dp,
+            trackColor = palette.surfaceContainerColor().copy(alpha = 0.42f),
+            progressColor = palette.controlContainer.copy(alpha = 0.94f),
+        )
     }
 }
 
@@ -1330,7 +1455,7 @@ private fun CenterPlayButton(
 
             drawPath(
                 path = ringPath,
-                color = palette.chipContainer.copy(alpha = 0.62f),
+                color = palette.surfaceContainerLowest, //.copy(alpha = 0.62f),
                 style = ringStroke,
             )
 
@@ -1465,6 +1590,7 @@ private fun SecondaryControlsRow(
                 enabled = volumeEnabled,
                 active = false,
                 activeColor = deviceActiveColor,
+                raisedInactiveStyle = true,
                 onClick = onVolumeClick,
                 contentDescription = "Volume",
             )
@@ -1475,6 +1601,7 @@ private fun SecondaryControlsRow(
                 enabled = deviceEnabled,
                 active = deviceRouteType == com.theveloper.pixelplay.shared.WearVolumeState.ROUTE_TYPE_WATCH,
                 activeColor = deviceActiveColor,
+                raisedInactiveStyle = true,
                 onClick = onOutputClick,
                 contentDescription = "Output device",
             )
@@ -1485,6 +1612,8 @@ private fun SecondaryControlsRow(
                 enabled = moreEnabled,
                 active = false,
                 activeColor = deviceActiveColor,
+                raisedInactiveStyle = true,
+                heavilyMutedWhenDisabled = true,
                 onClick = onMoreClick,
                 contentDescription = "More options",
             )
@@ -1498,25 +1627,47 @@ private fun SecondaryActionButton(
     enabled: Boolean,
     active: Boolean,
     activeColor: Color,
+    raisedInactiveStyle: Boolean = false,
+    heavilyMutedWhenDisabled: Boolean = false,
     onClick: () -> Unit,
     contentDescription: String,
 ) {
     val palette = LocalWearPalette.current
     val activeContainerColor = activeColor.copy(alpha = 0.84f)
+    val inactiveContainerColor = if (raisedInactiveStyle) {
+        palette.surfaceContainerHighest
+    } else {
+        palette.chipContainer
+    }
+    val inactiveContentColor = if (raisedInactiveStyle) {
+        palette.textPrimary.copy(alpha = 0.94f)
+    } else {
+        palette.chipContent
+    }
+    val disabledContainerColor = if (heavilyMutedWhenDisabled) {
+        palette.surfaceContainerLowest.copy(alpha = 0.92f)
+    } else {
+        palette.controlDisabledContainer
+    }
+    val disabledContentColor = if (heavilyMutedWhenDisabled) {
+        palette.textSecondary.copy(alpha = 0.48f)
+    } else {
+        palette.controlDisabledContent
+    }
     val container by animateColorAsState(
         targetValue = when {
-            !enabled -> palette.controlDisabledContainer
+            !enabled -> disabledContainerColor
             active -> activeContainerColor
-            else -> palette.chipContainer
+            else -> inactiveContainerColor
         },
         animationSpec = spring(),
         label = "secondaryContainer",
     )
     val tint by animateColorAsState(
         targetValue = when {
-            !enabled -> palette.controlDisabledContent
+            !enabled -> disabledContentColor
             active -> if (activeContainerColor.luminance() > 0.52f) Color.Black else Color.White
-            else -> palette.chipContent
+            else -> inactiveContentColor
         },
         animationSpec = spring(),
         label = "secondaryTint",

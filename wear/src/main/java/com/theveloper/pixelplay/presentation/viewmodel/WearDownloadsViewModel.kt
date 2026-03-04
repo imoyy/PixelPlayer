@@ -31,7 +31,6 @@ import javax.inject.Inject
 
 sealed interface WearDownloadsUiEvent {
     data class Message(val value: String) : WearDownloadsUiEvent
-    data class NavigateToPlayer(val songId: String) : WearDownloadsUiEvent
 }
 
 /**
@@ -89,17 +88,11 @@ class WearDownloadsViewModel @Inject constructor(
 
                 phonePlaybackTimeoutJob?.cancel()
                 phonePlaybackTimeoutJob = null
-                val fallbackSongId = _pendingPhonePlaybackSongId.value
                 pendingPhonePlaybackRequestId = null
                 _pendingPhonePlaybackSongId.value = null
 
                 if (result.success) {
                     stateRepository.setOutputTarget(WearOutputTarget.PHONE)
-                    _events.emit(
-                        WearDownloadsUiEvent.NavigateToPlayer(
-                            songId = result.songId?.takeIf { it.isNotBlank() } ?: fallbackSongId.orEmpty()
-                        )
-                    )
                 } else {
                     _events.emit(
                         WearDownloadsUiEvent.Message(

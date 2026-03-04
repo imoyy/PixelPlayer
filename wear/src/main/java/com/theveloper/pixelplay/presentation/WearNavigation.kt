@@ -138,11 +138,7 @@ fun WearNavigation() {
         }
 
         composable(WearScreens.DOWNLOADS) {
-            DownloadsScreen(
-                onSongClick = {
-                    navController.popBackStack(WearScreens.PLAYER, inclusive = false)
-                },
-            )
+            DownloadsScreen()
         }
 
         composable(WearScreens.BROWSE) {
@@ -190,10 +186,6 @@ fun WearNavigation() {
                 browseType = browseType,
                 contextId = contextId,
                 title = title,
-                onSongPlayed = {
-                    // Navigate back to player when a song is played
-                    navController.popBackStack(WearScreens.PLAYER, inclusive = false)
-                },
             )
         }
     }

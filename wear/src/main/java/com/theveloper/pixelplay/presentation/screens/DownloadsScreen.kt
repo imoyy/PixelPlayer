@@ -80,7 +80,6 @@ import kotlinx.coroutines.flow.collect
  */
 @Composable
 fun DownloadsScreen(
-    onSongClick: (songId: String) -> Unit = {},
     viewModel: WearDownloadsViewModel = hiltViewModel(),
     playerViewModel: WearPlayerViewModel = hiltViewModel(),
 ) {
@@ -126,7 +125,6 @@ fun DownloadsScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is WearDownloadsUiEvent.Message -> inlineMessage = event.value
-                is WearDownloadsUiEvent.NavigateToPlayer -> onSongClick(event.songId)
             }
         }
     }
@@ -346,7 +344,6 @@ fun DownloadsScreen(
                         isPlayingSong = isPlayingSong,
                         onClick = {
                             viewModel.playLocalSong(song.songId)
-                            onSongClick(song.songId)
                         },
                         onMenuClick = {
                             selectedLocalSongForMenu = song
@@ -518,7 +515,6 @@ fun DownloadsScreen(
                         },
                         onClick = {
                             viewModel.playDeviceSong(song.songId)
-                            onSongClick(song.songId)
                         },
                         colors = ChipDefaults.chipColors(
                             backgroundColor = if (isCurrentSong) elevatedSurfaceContainer else surfaceContainer,
@@ -557,7 +553,6 @@ fun DownloadsScreen(
                 onPlayOnWatch = {
                     viewModel.playLocalSong(menuSong.songId)
                     selectedLocalSongForMenu = null
-                    onSongClick(menuSong.songId)
                 },
                 onPlayOnPhone = {
                     viewModel.playSongOnPhone(menuSong.songId)

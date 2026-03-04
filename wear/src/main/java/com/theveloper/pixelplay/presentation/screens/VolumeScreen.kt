@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalWearFoundationApi::class)
+
 package com.theveloper.pixelplay.presentation.screens
 
 import androidx.compose.animation.animateColorAsState
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -26,12 +29,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,9 +41,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
+import androidx.wear.compose.foundation.requestFocusOnHierarchyActive
+import androidx.wear.compose.foundation.rotary.rotaryScrollable
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
+import com.google.android.horologist.audio.ui.VolumeUiState
+import com.google.android.horologist.audio.ui.volumeRotaryBehavior
+import com.theveloper.pixelplay.presentation.components.CurvedVolumeIndicator
 import com.theveloper.pixelplay.presentation.components.WearTopTimeText
 import com.theveloper.pixelplay.presentation.theme.LocalWearPalette
 import com.theveloper.pixelplay.presentation.theme.screenBackgroundColor
@@ -76,10 +84,26 @@ fun VolumeScreen(
         label = "volumeProgress",
     )
     val background = palette.screenBackgroundColor()
+    val rotaryFocusRequester = remember { FocusRequester() }
+    val rotaryVolumeUiState = remember(volumeState.level, volumeState.max) {
+        VolumeUiState(
+            current = volumeState.level.coerceAtLeast(0),
+            max = volumeState.max.coerceAtLeast(0),
+            min = 0,
+        )
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .requestFocusOnHierarchyActive()
+            .rotaryScrollable(
+                behavior = volumeRotaryBehavior(
+                    volumeUiStateProvider = { rotaryVolumeUiState },
+                    onRotaryVolumeInput = viewModel::setActiveVolume,
+                ),
+                focusRequester = rotaryFocusRequester,
+            )
             .background(background),
     ) {
         CurvedVolumeIndicator(
@@ -124,54 +148,6 @@ fun VolumeScreen(
 }
 
 @Composable
-private fun CurvedVolumeIndicator(
-    progress: Float,
-    modifier: Modifier = Modifier,
-) {
-    val palette = LocalWearPalette.current
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress.coerceIn(0f, 1f),
-        animationSpec = spring(),
-        label = "curvedVolumeIndicator",
-    )
-    val trackColor = palette.surfaceContainerColor().copy(alpha = 0.58f)
-    val progressColor = palette.controlContainer
-
-    Canvas(modifier = modifier) {
-        val strokeWidth = 6.dp.toPx()
-        val inset = strokeWidth / 2f + 9.dp.toPx()
-        val diameter = size.minDimension - (inset * 2f)
-        val arcSize = Size(diameter, diameter)
-        val topLeft = Offset(
-            x = (size.width - diameter) / 2f,
-            y = (size.height - diameter) / 2f,
-        )
-        val bottomAngle = 132f
-        val topAngle = 228f
-        val totalSweep = topAngle - bottomAngle
-
-        drawArc(
-            color = trackColor,
-            startAngle = bottomAngle,
-            sweepAngle = totalSweep,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-        )
-        drawArc(
-            color = progressColor,
-            startAngle = bottomAngle,
-            sweepAngle = totalSweep * animatedProgress,
-            useCenter = false,
-            topLeft = topLeft,
-            size = arcSize,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-        )
-    }
-}
-
-@Composable
 private fun VolumeValuePill(
     level: Int,
     percent: Int,
@@ -203,17 +179,10 @@ private fun VolumeValuePill(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Column(horizontalAlignment = Alignment.Start) {
-//            Text(
-//                text = "$percent%",
-//                color = palette.controlContent,
-//                style = MaterialTheme.typography.title3,
-//                fontWeight = FontWeight.SemiBold,
-//            )
             Text(
                 text = deviceName,
                 color = palette.controlContent,
                 style = MaterialTheme.typography.title3,
-                //fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -239,7 +208,8 @@ private fun VolumeStepButton(
         modifier = modifier
             .width(92.dp)
             .height(42.dp)
-            .background(container, RoundedCornerShape(24.dp))
+            .clip(CircleShape)
+            .background(container, CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

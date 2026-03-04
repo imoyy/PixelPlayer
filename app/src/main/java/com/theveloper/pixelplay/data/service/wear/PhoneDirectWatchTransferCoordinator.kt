@@ -125,6 +125,7 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
                 fileSize = fileSize,
                 bitrate = song.bitrate ?: 0,
                 sampleRate = song.sampleRate ?: 0,
+                isFavorite = song.isFavorite,
                 paletteSeedArgb = paletteSeedArgb,
                 themePalette = transferThemePalette,
             )
@@ -628,6 +629,7 @@ class PhoneDirectWatchTransferCoordinator @Inject constructor(
             fileSize = 0L,
             bitrate = 0,
             sampleRate = 0,
+            isFavorite = false,
             error = errorMessage,
         )
         runCatching {

@@ -56,9 +56,15 @@ class WearPlaybackController @Inject constructor(
     fun togglePlayPause() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.TOGGLE_PLAY_PAUSE))
     fun next() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.NEXT))
     fun previous() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.PREVIOUS))
-    fun toggleFavorite(targetEnabled: Boolean? = null) = sendCommand(
+    fun toggleFavorite(
+        songId: String? = null,
+        targetEnabled: Boolean? = null,
+        requestId: String? = null,
+    ) = sendCommand(
         WearPlaybackCommand(
             action = WearPlaybackCommand.TOGGLE_FAVORITE,
+            songId = songId,
+            requestId = requestId,
             targetEnabled = targetEnabled
         )
     )
@@ -71,6 +77,12 @@ class WearPlaybackController @Inject constructor(
     fun cycleRepeat() = sendCommand(WearPlaybackCommand(WearPlaybackCommand.CYCLE_REPEAT))
     fun volumeUp() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.UP))
     fun volumeDown() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.DOWN))
+    fun setPhoneVolume(percent: Int) = sendVolumeCommand(
+        WearVolumeCommand(
+            direction = WearVolumeCommand.SET,
+            value = percent.coerceIn(0, 100),
+        )
+    )
     fun requestPhoneVolumeState() = sendVolumeCommand(WearVolumeCommand(WearVolumeCommand.QUERY))
 
     /** Play a song within its context queue (album, artist, playlist, etc.) */

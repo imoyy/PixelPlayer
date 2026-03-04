@@ -14,6 +14,7 @@ import com.google.android.gms.wearable.WearableListenerService
 import com.theveloper.pixelplay.presentation.WearMainActivity
 import com.theveloper.pixelplay.shared.WearBrowseResponse
 import com.theveloper.pixelplay.shared.WearDataPaths
+import com.theveloper.pixelplay.shared.WearFavoriteSyncResponse
 import com.theveloper.pixelplay.shared.WearPlaybackResult
 import com.theveloper.pixelplay.shared.WearPlayerState
 import com.theveloper.pixelplay.shared.WearTransferMetadata
@@ -52,6 +53,9 @@ class WearDataListenerService : WearableListenerService() {
 
     @Inject
     lateinit var transferRepository: WearTransferRepository
+
+    @Inject
+    lateinit var favoriteSyncRepository: WearFavoriteSyncRepository
 
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -250,6 +254,19 @@ class WearDataListenerService : WearableListenerService() {
                     stateRepository.publishPlaybackResult(result)
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Failed to process playback result")
+                }
+            }
+
+            WearDataPaths.FAVORITES_SYNC_STATE -> {
+                scope.launch {
+                    try {
+                        val responseJson = String(messageEvent.data, Charsets.UTF_8)
+                        val response = json.decodeFromString<WearFavoriteSyncResponse>(responseJson)
+                        favoriteSyncRepository.applyFavoriteSyncResponse(response)
+                        stateRepository.setPhoneConnected(true)
+                    } catch (e: Exception) {
+                        Timber.tag(TAG).e(e, "Failed to process favorite sync response")
+                    }
                 }
             }
 

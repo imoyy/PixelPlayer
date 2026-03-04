@@ -19,6 +19,8 @@ data class LocalSongEntity(
     val fileSize: Long,
     val bitrate: Int,
     val sampleRate: Int,
+    val isFavorite: Boolean = false,
+    val favoriteSyncPending: Boolean = false,
     val paletteSeedArgb: Int? = null,
     val themePaletteJson: String? = null,
     val artworkPath: String? = null,

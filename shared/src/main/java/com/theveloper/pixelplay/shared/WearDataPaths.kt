@@ -58,4 +58,10 @@ object WearDataPaths {
 
     /** Message path carrying the watch saved song IDs snapshot (watch -> phone). */
     const val WATCH_LIBRARY_STATE = "/watch_library_state"
+
+    /** Message path for asking the phone to resolve favorite states for watch-local songs. */
+    const val FAVORITES_SYNC_REQUEST = "/favorites_sync_request"
+
+    /** Message path carrying favorite state snapshots back to the watch. */
+    const val FAVORITES_SYNC_STATE = "/favorites_sync_state"
 }

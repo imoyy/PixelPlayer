@@ -54,6 +54,7 @@ object WearModule {
                 WearMusicDatabase.MIGRATION_1_2,
                 WearMusicDatabase.MIGRATION_2_3,
                 WearMusicDatabase.MIGRATION_3_4,
+                WearMusicDatabase.MIGRATION_4_5,
             )
             // Watch downloads are a rebuildable cache. If a newer dev build created a higher
             // schema version, allow Room to recreate the DB instead of crashing on downgrade.
