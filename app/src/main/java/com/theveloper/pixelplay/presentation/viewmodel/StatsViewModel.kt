@@ -105,6 +105,7 @@ class StatsViewModel @Inject constructor(
             _uiState.update { current ->
                 current.copy(
                     isLoading = false,
+                    isRefreshing = false,
                     summary = summary.getOrNull(),
                     selectedRange = range
                 )
