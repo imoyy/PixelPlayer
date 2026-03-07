@@ -12,7 +12,7 @@ import com.theveloper.pixelplay.data.navidrome.model.NavidromeSong
  *
  * @property id The composite ID (playlistId_songId)
  * @property navidromeId The unique song ID from the Subsonic server
- * @property playlistId The ID of the playlist this song belongs to (0 if not in a playlist)
+ * @property playlistId The ID of the playlist this song belongs to
  * @property title The song title
  * @property artist The artist name
  * @property artistId The artist ID on the server (optional)
@@ -41,7 +41,7 @@ import com.theveloper.pixelplay.data.navidrome.model.NavidromeSong
 data class NavidromeSongEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "navidrome_id") val navidromeId: String,
-    @ColumnInfo(name = "playlist_id") val playlistId: Long,
+    @ColumnInfo(name = "playlist_id") val playlistId: String,
     val title: String,
     val artist: String,
     @ColumnInfo(name = "artist_id") val artistId: String?,
@@ -89,7 +89,7 @@ fun NavidromeSongEntity.toSong(): Song {
 /**
  * Convert a [NavidromeSong] to a [NavidromeSongEntity] for database storage.
  */
-fun NavidromeSong.toEntity(playlistId: Long): NavidromeSongEntity {
+fun NavidromeSong.toEntity(playlistId: String): NavidromeSongEntity {
     return NavidromeSongEntity(
         id = "${playlistId}_$id",
         navidromeId = id,

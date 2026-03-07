@@ -21,7 +21,7 @@ interface NavidromeDao {
     suspend fun getAllNavidromeSongsList(): List<NavidromeSongEntity>
 
     @Query("SELECT * FROM navidrome_songs WHERE playlist_id = :playlistId ORDER BY date_added DESC")
-    fun getSongsByPlaylist(playlistId: Long): Flow<List<NavidromeSongEntity>>
+    fun getSongsByPlaylist(playlistId: String): Flow<List<NavidromeSongEntity>>
 
     @Query("SELECT * FROM navidrome_songs WHERE title LIKE '%' || :query || '%' OR artist LIKE '%' || :query || '%'")
     fun searchSongs(query: String): Flow<List<NavidromeSongEntity>>
@@ -42,7 +42,7 @@ interface NavidromeDao {
     suspend fun deleteSong(songId: String)
 
     @Query("DELETE FROM navidrome_songs WHERE playlist_id = :playlistId")
-    suspend fun deleteSongsByPlaylist(playlistId: Long)
+    suspend fun deleteSongsByPlaylist(playlistId: String)
 
     // ─── Playlists ─────────────────────────────────────────────────────
 

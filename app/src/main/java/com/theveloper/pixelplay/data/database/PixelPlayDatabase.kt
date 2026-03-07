@@ -777,7 +777,7 @@ abstract class PixelPlayDatabase : RoomDatabase() {
                     CREATE TABLE IF NOT EXISTS navidrome_songs (
                         id TEXT NOT NULL PRIMARY KEY,
                         navidrome_id TEXT NOT NULL,
-                        playlist_id INTEGER NOT NULL,
+                        playlist_id TEXT NOT NULL,
                         title TEXT NOT NULL,
                         artist TEXT NOT NULL,
                         artist_id TEXT,

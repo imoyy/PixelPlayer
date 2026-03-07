@@ -79,7 +79,11 @@ class NavidromeDashboardViewModel @Inject constructor(
             _syncMessage.value = "Syncing songs..."
             val result = repository.syncPlaylistSongs(playlistId)
             result.fold(
-                onSuccess = { _syncMessage.value = "Synced $it songs" },
+                onSuccess = { count ->
+                    // Sync to unified library after successfully syncing individual playlist
+                    repository.syncUnifiedLibrarySongsFromNavidrome()
+                    _syncMessage.value = "Synced $count songs"
+                },
                 onFailure = { _syncMessage.value = "Sync failed: ${it.message}" }
             )
             _isSyncing.value = false

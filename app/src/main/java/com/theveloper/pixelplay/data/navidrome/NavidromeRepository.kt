@@ -165,7 +165,7 @@ class NavidromeRepository @Inject constructor(
         // Delete all Navidrome playlists from database
         val playlistsToDelete = dao.getAllPlaylistsList()
         playlistsToDelete.forEach { playlist ->
-            dao.deleteSongsByPlaylist(playlist.id.toLongOrNull() ?: 0L)
+            dao.deleteSongsByPlaylist(playlist.id)
             deleteAppPlaylistForNavidromePlaylist(playlist.id)
         }
 
@@ -245,7 +245,7 @@ class NavidromeRepository @Inject constructor(
                 if (stalePlaylists.isNotEmpty()) {
                     Timber.d("$TAG: Removing ${stalePlaylists.size} stale playlists")
                     stalePlaylists.forEach { stale ->
-                        dao.deleteSongsByPlaylist(stale.id.toLongOrNull() ?: 0L)
+                        dao.deleteSongsByPlaylist(stale.id)
                         dao.deletePlaylist(stale.id)
                         deleteAppPlaylistForNavidromePlaylist(stale.id)
                     }
@@ -294,11 +294,12 @@ class NavidromeRepository @Inject constructor(
                 }
 
                 val entities = songs.map { song: NavidromeSong ->
-                    song.toEntity(playlistId.toLongOrNull() ?: 0L)
+                    song.toEntity(playlistId)
                 }
 
                 if (entities.isNotEmpty()) {
-                    dao.deleteSongsByPlaylist(playlistId.toLongOrNull() ?: 0L)
+                    Timber.d("$TAG: Playlist $playlistId - Deleting old songs, inserting ${entities.size} new songs")
+                    dao.deleteSongsByPlaylist(playlistId)
                     dao.insertSongs(entities)
                     
                     // Update app playlist only if we have data
@@ -308,14 +309,17 @@ class NavidromeRepository @Inject constructor(
                     // This is a TRULY empty playlist on the server.
                     // We should ONLY clear it if we actually got a successful empty list response,
                     // not a parse error.
-                    dao.deleteSongsByPlaylist(playlistId.toLongOrNull() ?: 0L)
+                    Timber.d("$TAG: Playlist $playlistId is empty on server, clearing local cache")
+                    dao.deleteSongsByPlaylist(playlistId)
                     val playlistName = dao.getPlaylistById(playlistId)?.name ?: "Playlist"
                     updateAppPlaylistForNavidromePlaylist(playlistId, playlistName, emptyList())
                 } else {
                     Timber.w("$TAG: songJsons was not empty (${songJsons.size}) but entities was empty. Parsing issue?")
                 }
 
-                syncUnifiedLibrarySongsFromNavidrome()
+                // NOTE: Unified library sync is now handled by the caller (e.g., syncAllPlaylistsAndSongs)
+                // to avoid multiple redundant syncs. If you need immediate sync for single playlist,
+                // call syncUnifiedLibrarySongsFromNavidrome() after this method.
 
                 Timber.d("$TAG: Synced ${entities.size} songs for playlist $playlistId")
                 Result.success(entities.size)
@@ -360,6 +364,7 @@ class NavidromeRepository @Inject constructor(
                 )
             }
 
+            // Sync to unified library once after all playlists are synced
             syncUnifiedLibrarySongsFromNavidrome()
 
             Result.success(
@@ -381,7 +386,7 @@ class NavidromeRepository @Inject constructor(
      * Get songs in a playlist as Flow of Song.
      */
     fun getPlaylistSongs(playlistId: String): Flow<List<Song>> {
-        return dao.getSongsByPlaylist(playlistId.toLongOrNull() ?: 0L).map { entities ->
+        return dao.getSongsByPlaylist(playlistId).map { entities ->
             entities.map { it.toSong() }
         }
     }
@@ -683,7 +688,7 @@ class NavidromeRepository @Inject constructor(
     // ─── Delete ────────────────────────────────────────────────────────────
 
     suspend fun deletePlaylist(playlistId: String) {
-        dao.deleteSongsByPlaylist(playlistId.toLongOrNull() ?: 0L)
+        dao.deleteSongsByPlaylist(playlistId)
         dao.deletePlaylist(playlistId)
         deleteAppPlaylistForNavidromePlaylist(playlistId)
         syncUnifiedLibrarySongsFromNavidrome()
