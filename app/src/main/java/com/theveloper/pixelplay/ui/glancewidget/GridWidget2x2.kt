@@ -56,15 +56,19 @@ class GridWidget2x2 : GlanceAppWidget() {
 
         val colors = playerInfo.getWidgetColors()
 
-        val widgetCornerRadius = 28.dp
+        val widgetPadding = 12.dp
+        val widgetCornerRadius = systemWidgetCornerRadius()
         val itemCornerRadius = 16.dp
+        val gridSpacing = 5.dp
 
         val size = LocalSize.current
-        val minSide = min(size.width, size.height)
-        
-        val dynamicIconSize = (minSide.value * 0.14f).dp
-        val dynamicPlayIconSize = (minSide.value * 0.16f).dp
-        val albumArtSize = (minSide.value * 0.40f).dp
+        val contentWidth = size.width - (widgetPadding * 2)
+        val contentHeight = size.height - (widgetPadding * 2)
+        val gridSide = min(contentWidth, contentHeight)
+
+        val dynamicIconSize = (gridSide.value * 0.14f).dp
+        val dynamicPlayIconSize = (gridSide.value * 0.16f).dp
+        val albumArtSize = (gridSide.value * 0.40f).dp
 
         Box(
             modifier = GlanceModifier
@@ -74,13 +78,14 @@ class GridWidget2x2 : GlanceAppWidget() {
         ) {
             Box(
                 modifier = GlanceModifier
-                    .size(minSide)
+                    .fillMaxSize()
                     .background(colors.surface)
                     .cornerRadius(widgetCornerRadius)
-                    .padding(16.dp)
+                    .padding(widgetPadding),
+                contentAlignment = Alignment.Center
             ) {
                 Column(
-                    modifier = GlanceModifier.fillMaxSize()
+                    modifier = GlanceModifier.size(gridSide)
                 ) {
                     // Top
                     Row(
@@ -99,7 +104,7 @@ class GridWidget2x2 : GlanceAppWidget() {
                             cornerRadius = itemCornerRadius
                         )
 
-                        Spacer(GlanceModifier.width(6.dp))
+                        Spacer(GlanceModifier.width(gridSpacing))
 
                         // Play/Pause Button
                         PlayPauseButton(
@@ -114,7 +119,7 @@ class GridWidget2x2 : GlanceAppWidget() {
                         )
                     }
 
-                    Spacer(GlanceModifier.height(6.dp))
+                    Spacer(GlanceModifier.height(gridSpacing))
 
                     // Bottom
                     Row(
@@ -133,7 +138,7 @@ class GridWidget2x2 : GlanceAppWidget() {
                             iconSize = dynamicIconSize
                         )
 
-                        Spacer(GlanceModifier.width(6.dp))
+                        Spacer(GlanceModifier.width(gridSpacing))
 
                         // Next Button
                         NextButton(

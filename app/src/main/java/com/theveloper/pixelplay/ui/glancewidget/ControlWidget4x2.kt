@@ -64,7 +64,7 @@ class ControlWidget4x2 : GlanceAppWidget() {
 
         val colors = playerInfo.getWidgetColors()
 
-        val widgetCornerRadius = 28.dp
+        val widgetCornerRadius = systemWidgetCornerRadius()
         val albumArtCornerRadius = 16.dp
         val playButtonCornerRadius = if (isPlaying) 16.dp else 20.dp
         val controlButtonCornerRadius = 16.dp

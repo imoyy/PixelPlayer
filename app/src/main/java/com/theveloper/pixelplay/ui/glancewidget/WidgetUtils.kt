@@ -1,9 +1,13 @@
 package com.theveloper.pixelplay.ui.glancewidget
 
+import android.os.Build
 import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceTheme
 import androidx.glance.color.ColorProvider
 import androidx.glance.unit.ColorProvider
@@ -86,4 +90,12 @@ fun PlayerInfo.getWidgetColors(): WidgetColors {
             prevNextIcon = GlanceTheme.colors.onSecondaryContainer
         )
     }
+}
+
+@Composable
+fun systemWidgetCornerRadius(): Dp {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        return 28.dp
+    }
+    return dimensionResource(id = android.R.dimen.system_app_widget_background_radius)
 }

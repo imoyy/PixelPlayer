@@ -107,6 +107,7 @@ class PixelPlayGlanceWidget : GlanceAppWidget() {
 
         val actualBackgroundColor = GlanceTheme.colors.surface
         val onBackgroundColor = GlanceTheme.colors.onSurface
+        val defaultWidgetCornerRadius = systemWidgetCornerRadius()
 
         val baseModifier = GlanceModifier
             .fillMaxSize()
@@ -186,7 +187,7 @@ class PixelPlayGlanceWidget : GlanceAppWidget() {
                     size.width < MEDIUM_LAYOUT_SIZE.width || size.height < MEDIUM_LAYOUT_SIZE.height -> SmallWidgetLayout(
                         modifier = baseModifier,
                         backgroundColor = actualBackgroundColor,
-                        bgCornerRadius = 28.dp,
+                        bgCornerRadius = defaultWidgetCornerRadius,
                         albumArtBitmapData = albumArtBitmapData,
                         albumArtUri = albumArtUri,
                         isPlaying = isPlaying,
@@ -202,7 +203,7 @@ class PixelPlayGlanceWidget : GlanceAppWidget() {
                         textColor = onBackgroundColor,
                         context = context,
                         backgroundColor = actualBackgroundColor,
-                        bgCornerRadius = 28.dp
+                        bgCornerRadius = defaultWidgetCornerRadius
                     )
                     size.width < EXTRA_LARGE_LAYOUT_SIZE.width || size.height < EXTRA_LARGE_LAYOUT_SIZE.height -> LargeWidgetLayout(
                         modifier = baseModifier,
@@ -211,7 +212,7 @@ class PixelPlayGlanceWidget : GlanceAppWidget() {
                         albumArtBitmapData = albumArtBitmapData,
                         albumArtUri = albumArtUri,
                         backgroundColor = actualBackgroundColor,
-                        bgCornerRadius = 28.dp,
+                        bgCornerRadius = defaultWidgetCornerRadius,
                         isPlaying = isPlaying,
                         isFavorite = isFavorite,
                         textColor = onBackgroundColor,
@@ -225,7 +226,7 @@ class PixelPlayGlanceWidget : GlanceAppWidget() {
                         albumArtUri = albumArtUri,
                         isPlaying = isPlaying,
                         backgroundColor = actualBackgroundColor,
-                        bgCornerRadius = 28.dp,
+                        bgCornerRadius = defaultWidgetCornerRadius,
                         textColor = onBackgroundColor,
                         context = context,
                         queue = playerInfo.queue
